@@ -1,0 +1,3 @@
+# Phin
+
+An accounting software.
