@@ -1,0 +1,15 @@
+# Phin sample rules -- one rule per line: pattern -> category
+# '#' starts a comment, empty lines are ignored, file order = precedence.
+# The exact pattern syntax is finalised in plan item 1.5; this sample
+# shows literal, word-list and regex patterns.
+
+REWE MARKT -> food:supermarket
+ALDI -> food:supermarket
+LIDL -> food:supermarket
+ZUR LEITZ -> food:restaurant
+CAFETARIA -> food:restaurant
+TAXI -> finance:expense:transport
+BOOKS ONLINE -> leisure:books
+AMAZON MARKETPLACE -> leisure:games
+regex:^PAYMENT TO -> finance:income
+CLIENT PAYMENT -> finance:income

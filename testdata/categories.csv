@@ -1,0 +1,13 @@
+# Phin categories -- tree of parent:child names, order is preserved.
+# columns: parent;name
+;food
+;finance
+;leisure
+food;supermarket
+food;restaurant
+finance;income
+finance;expense
+expense;transport
+expense;utilities
+leisure;books
+leisure;games

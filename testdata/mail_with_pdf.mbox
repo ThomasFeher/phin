@@ -1,0 +1,227 @@
+From anna@example.com Sat Mar 30 09:12:11 2024
+From: Anna <anna@example.com>
+To: tobias@example.com
+Subject: bank statement feb
+Date: 30 Mar 2024 09:12:11 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Anna,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Anna
+
+From tobias@example.com Sat Mar 30 10:02:44 2024
+From: Tobias <tobias@example.com>
+To: anna@example.com
+Subject: Re: bank statement feb
+Date: 30 Mar 2024 10:02:44 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Tobias,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Tobias
+
+From anna@example.com Sat Mar 30 10:30:03 2024
+From: Anna <anna@example.com>
+To: tobias@example.com
+Subject: Re: bank statement feb
+Date: 30 Mar 2024 10:30:03 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Anna,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Anna
+
+From tobias@example.com Sun Mar 31 18:45:20 2024
+From: Tobias <tobias@example.com>
+To: anna@example.com
+Subject: statement attachment
+Date: 31 Mar 2024 18:45:20 +0100
+Content-Type: multipart/mixed; boundary=PhinBoundary0001
+
+--PhinBoundary0001
+Content-Type: text/plain; charset=us-ascii
+
+Hi Anna,
+
+please find attached the February statement of Bank B.
+The file is the same bank_b1.pdf fixture used by the parser tests.
+
+Tobias
+
+--PhinBoundary0001
+Content-Type: application/pdf; name=bank_b1.pdf
+Content-Disposition: attachment; filename=bank_b1.pdf
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2Jq
+CjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUiA1IDAgUl0gL0NvdW50IDIgPj4K
+ZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAg
+MCA1OTUgODQyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA3IDAgUiA+PiA+PiAvQ29udGVu
+dHMgNCAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA5MDcgPj4Kc3RyZWFtCkJUCjEg
+MCAwIDEgNDAgNzkwIFRtCi9GMSAxMCBUZgooQmFuayBCIE4gLS0gTW9udGhseSBTdGF0ZW1lbnQp
+IFRqCkVUCkJUCjEgMCAwIDEgNDAgNzc0IFRtCi9GMSAxMCBUZgooS3JlZGl0OiAqKioqLSoqKiot
+NDcxMSkgVGoKRVQKQlQKMSAwIDAgMSA0MCA3NTggVG0KL0YxIDEwIFRmCihNb25hdDogRmVicnVh
+cnkgMjAyNCkgVGoKRVQKQlQKMSAwIDAgMSA0MCA3NDIgVG0KL0YxIDEwIFRmCigpIFRqCkVUCkJU
+CjEgMCAwIDEgNDAgNzI2IFRtCi9GMSAxMCBUZgooRGF0ZSAgICAgICAgQ2FyZC1OdW1iZXIgICAg
+IERlc2NyaXB0aW9uICAgICAgICAgICAgICBBbW91bnQgXChFVVJcKSkgVGoKRVQKQlQKMSAwIDAg
+MSA0MCA3MTAgVG0KL0YxIDEwIFRmCigyMDI0LTAyLTAzICA0NzExLTAwMDAtNDcxMSAgIEFMREkg
+NDcxMSAgICAgICAgICAgICAgICAgICAgIC04OS45MCBFVVIpIFRqCkVUCkJUCjEgMCAwIDEgNDAg
+Njk0IFRtCi9GMSAxMCBUZgooMjAyNC0wMi0xMSAgNDcxMS0wMDAwLTQ3MTEgICBUQVhJIEFJUlBP
+UlQ7IE5JR0hUICAgICAgICAgICAtMjUuMDAgRVVSKSBUagpFVApCVAoxIDAgMCAxIDQwIDY3OCBU
+bQovRjEgMTAgVGYKKDIwMjQtMDItMTcgIDQ3MTEtMDAwMC00NzExICAgQ0xJRU5UIFBBWU1FTlQg
+ICAgICAgICAgICAgICAgODUwLjAwIEVVUikgVGoKRVQKQlQKMSAwIDAgMSA0MCA2NjIgVG0KL0Yx
+IDEwIFRmCigyMDI0LTAyLTI0ICA0NzExLTAwMDAtNDcxMSAgIFJFV0UgTUFSS1QgMTIgICAgICAg
+ICAgICAgICAgIC0zNC41NiBFVVIpIFRqCkVUCkJUCjEgMCAwIDEgNDAgNjQ2IFRtCi9GMSAxMCBU
+ZgooKSBUagpFVApCVAoxIDAgMCAxIDQwIDYzMCBUbQovRjEgMTAgVGYKKEdlbmVyYXRlZCBieSBQ
+aGluIHRlc3RkYXRhIGdlbmVyYXRvci4gTm90IGEgcmVhbCBiYW5rLikgVGoKRVQKZW5kc3RyZWFt
+CmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIgL01lZGlhQm94IFsw
+IDAgNTk1IDg0Ml0gL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNyAwIFIgPj4gPj4gL0NvbnRl
+bnRzIDYgMCBSID4+CmVuZG9iago2IDAgb2JqCjw8IC9MZW5ndGggMzMwID4+CnN0cmVhbQpCVAox
+IDAgMCAxIDQwIDc5MCBUbQovRjEgMTAgVGYKKEJhbmsgQiBOIC0tIE1vbnRobHkgU3RhdGVtZW50
+IC0tIFN1bW1hcnkpIFRqCkVUCkJUCjEgMCAwIDEgNDAgNzc0IFRtCi9GMSAxMCBUZgooTW9uYXQ6
+IEZlYnJ1YXJ5IDIwMjQpIFRqCkVUCkJUCjEgMCAwIDEgNDAgNzU4IFRtCi9GMSAxMCBUZgooKSBU
+agpFVApCVAoxIDAgMCAxIDQwIDc0MiBUbQovRjEgMTAgVGYKKFRvdGFsOiA3MDAuNTQgRVVSKSBU
+agpFVApCVAoxIDAgMCAxIDQwIDcyNiBUbQovRjEgMTAgVGYKKEdlbmVyYXRlZCBieSBQaGluIHRl
+c3RkYXRhIGdlbmVyYXRvci4gTm90IGEgcmVhbCBiYW5rLikgVGoKRVQKZW5kc3RyZWFtCmVuZG9i
+ago3IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZl
+dGljYSAvRW5jb2RpbmcgL1dpbkFuc2lFbmNvZGluZyA+PgplbmRvYmoKOCAwIG9iago8PCAvVGl0
+bGUgKFBoaW4gdGVzdGRhdGEgZml4dHVyZSkgL0F1dGhvciAoUGhpbiBnZW5lcmF0b3IpID4+CmVu
+ZG9iagp4cmVmCjAgOQowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAw
+MDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTIxIDAwMDAwIG4gCjAwMDAwMDAyNDcgMDAwMDAgbiAK
+MDAwMDAwMTIwNSAwMDAwMCBuIAowMDAwMDAxMzMxIDAwMDAwIG4gCjAwMDAwMDE3MTIgMDAwMDAg
+biAKMDAwMDAwMTgwOSAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDkgL1Jvb3QgMSAwIFIgL0lu
+Zm8gOCAwIFIgPj4Kc3RhcnR4cmVmCjE4ODYKJSVFT0YK
+--PhinBoundary0001--
+
+From anna@example.com Mon Apr 01 08:05:55 2024
+From: Anna <anna@example.com>
+To: tobias@example.com
+Subject: Re: statement attachment
+Date: 01 Apr 2024 08:05:55 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Anna,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Anna
+
+From tobias@example.com Tue Apr 02 12:00:01 2024
+From: Tobias <tobias@example.com>
+To: anna@example.com
+Subject: Re: statement attachment
+Date: 02 Apr 2024 12:00:01 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Tobias,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Tobias
+
+From anna@example.com Wed Apr 03 19:33:10 2024
+From: Anna <anna@example.com>
+To: tobias@example.com
+Subject: Re: statement attachment
+Date: 03 Apr 2024 19:33:10 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Anna,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Anna
+
+From tobias@example.com Thu Apr 04 07:41:09 2024
+From: Tobias <tobias@example.com>
+To: anna@example.com
+Subject: Re: statement attachment
+Date: 04 Apr 2024 07:41:09 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Tobias,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Tobias
+
+From anna@example.com Fri Apr 05 20:15:37 2024
+From: Anna <anna@example.com>
+To: tobias@example.com
+Subject: Re: statement attachment
+Date: 05 Apr 2024 20:15:37 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Anna,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Anna
+
+From tobias@example.com Sat Apr 06 09:59:59 2024
+From: Tobias <tobias@example.com>
+To: anna@example.com
+Subject: Re: statement attachment
+Date: 06 Apr 2024 09:59:59 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Tobias,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Tobias
+
+From anna@example.com Sun Apr 07 11:23:45 2024
+From: Anna <anna@example.com>
+To: tobias@example.com
+Subject: Re: statement attachment
+Date: 07 Apr 2024 11:23:45 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Anna,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Anna
+
+From tobias@example.com Mon Apr 08 16:50:02 2024
+From: Tobias <tobias@example.com>
+To: anna@example.com
+Subject: Re: statement attachment
+Date: 08 Apr 2024 16:50:02 +0100
+Content-Type: text/plain; charset=us-ascii
+
+Hello Tobias,
+
+this is one of the plain messages in the mbox fixture.
+No attachment here; the thread contains one message with a PDF.
+
+Best regards
+Tobias
+

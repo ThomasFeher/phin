@@ -1,0 +1,224 @@
+From payments@example.com Tue Apr 02 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 02 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: 25,99 EUR
+Grund: LEGO STORE DE
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
+From payments@example.com Fri Apr 05 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 05 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: -19,99 EUR
+Grund: NETFLIX.COM
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
+From payments@example.com Tue Apr 09 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 09 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: 8,99 EUR
+Grund: BAKERY BERLIN
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
+From payments@example.com Fri Apr 12 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 12 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: -45,00 EUR
+Grund: STEAM PURCHASE
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
+From payments@example.com Mon Apr 15 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 15 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: 120,00 EUR
+Grund: CLIENT PAYMENT
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
+From payments@example.com Thu Apr 18 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 18 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: -7,99 EUR
+Grund: BOOKS ONLINE
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
+From payments@example.com Sun Apr 21 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 21 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: 34,50 EUR
+Grund: SUPERMARKET; DELICATES
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
+From payments@example.com Fri Apr 26 12:00:00 2024
+From: PAYPAL *NameOfPayee <payments@example.com>
+To: tobias@example.com
+Subject: Your PayPal payment receipt
+Date: 26 Apr 2024 12:00:00 +0100
+Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+
+--PayPalBoundary0002
+Content-Type: text/plain; charset=UTF-8
+
+Hello Tobias,
+
+Wir haben erhalten Ihre Zahlung.
+
+Betrag: -29,99 EUR
+Grund: TAXI AIRPORT; NIGHT
+Payment-Provider: PAYPAL *NAMEOFPAYEE
+Details: Einzeluebersicht
+
+Bitte fragen uns, falls es Fragen.
+PayPal
+
+--PayPalBoundary0002
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Payment received. Fixture only.</p></body></html>
+--PayPalBoundary0002--
+
