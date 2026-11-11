@@ -1,0 +1,3 @@
+[package]
+name = "gui"
+edition = "2024"
