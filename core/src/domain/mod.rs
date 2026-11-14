@@ -12,3 +12,5 @@
 
 #[test]
 fn domain_module_compiles() {}
+
+pub mod money;

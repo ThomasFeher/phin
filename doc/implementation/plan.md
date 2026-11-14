@@ -32,28 +32,28 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
 
 # Phase 0 — Scaffolding and Documentation
 
-- [ ] **0.1 Workspace skeleton** — Files: root `Cargo.toml` (workspace),
+- [x] **0.1 Workspace skeleton** — Files: root `Cargo.toml` (workspace),
       packages `proto/`, `core/`, `cli/`, `tui/`, `gui/` with empty libs and
       `main` stubs, `plugins/`, `testdata/`, `doc/`. Depends: –.
       Tests: one trivial `#[test]` per package that the package compiles and
       links. Est. 60 LOC.
-- [ ] **0.2 Module layout inside `core`** — Files: `core/src/domain/{mod.rs,
+- [x] **0.2 Module layout inside `core`** — Files: `core/src/domain/{mod.rs,
       README.md}`, `core/src/technical/{mod.rs}`, `core/src/main.rs` (daemon
       stub reading lines from stdin). Depends: 0.1.
       Tests: `domain` module compiles with no `std::fs`, no `std::net` imports
       (enforced by a test that greps the sources — see 0.3 helper). Est. 50 LOC.
-- [ ] **0.3 Test fixtures** — Files: `testdata/README.md`, `testdata/generate.py`
+- [x] **0.3 Test fixtures** — Files: `testdata/README.md`, `testdata/generate.py`
       (or a Rust generator) that creates: 3 fake bank-statement PDFs of two
       different bank layouts (text layer, no OCR), 2 small mbox files
       (≈ 20 messages, one with a PDF attachment, one PayPal-style
       notification), a `transactions.csv`, `categories.csv`, `rules/` sample.
       Depends: 0.1. Tests: generator is deterministic (same output for two runs,
       checked by hash). Est. 200 LOC of generator, no Rust.
-- [ ] **0.4 README** — Files: `README.md` (extend the existing one). Content:
+- [x] **0.4 README** — Files: `README.md` (extend the existing one). Content:
       what the tool does in 5 sentences, the three interfaces, how to build
       (`cargo build --workspace`), how to run the daemon + CLI, where the data
       files live, where the docs live. Depends: 0.1. Est. 40 lines.
-- [ ] **0.5 Interface documentation, part 1** — Files: `doc/interfaces/README.md`
+- [x] **0.5 Interface documentation, part 1** — Files: `doc/interfaces/README.md`
       (index), `doc/interfaces/core-protocol.md` (commands, events, cancel,
       versioning, JSON-Lines examples), `doc/interfaces/plugin-protocol.md`
       (`probe`, `extract`, `analyse`), `doc/interfaces/data-files.md` (every
@@ -63,7 +63,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
 
 # Phase 1 — Domain Model (pure, no I/O)
 
-- [ ] **1.1 Money** — Files: `core/src/domain/money.rs`. Parse and print
+- [x] **1.1 Money** — Files: `core/src/domain/money.rs`. Parse and print
       amounts in one settlement currency as `i64` minor units.
       Depends: 0.2. Tests: `"1.234,56 €"` → 123456; `"-12,00"` → -1200;
       `"0,00"` → 0; `"1.000"` (thousands sep) → 100000; garbage input → typed
