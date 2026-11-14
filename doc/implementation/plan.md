@@ -69,7 +69,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       `"0,00"` → 0; `"1.000"` (thousands sep) → 100000; garbage input → typed
       error, never a panic; round-trip print/parse identity; no float anywhere.
       Est. 90 LOC + 15 tests.
-- [ ] **1.2 Dates** — Files: `core/src/domain/date.rs`. Parse the date formats
+- [x] **1.2 Dates** — Files: `core/src/domain/date.rs`. Parse the date formats
       that occur in the fixture bank layouts; store as `YYYY-MM-DD` string
       internally. Depends: 0.2. Tests: each fixture format parses; ambiguous
       `01/02/2024` rejected explicitly; invalid calendar dates rejected;

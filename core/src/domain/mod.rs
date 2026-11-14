@@ -10,7 +10,8 @@
 //! `core/src/technical/mod.rs::domain_sources_are_pure` greps every source file
 //! in this subtree for forbidden module paths and fails if it finds one.
 
+pub mod date;
+pub mod money;
+
 #[test]
 fn domain_module_compiles() {}
-
-pub mod money;
