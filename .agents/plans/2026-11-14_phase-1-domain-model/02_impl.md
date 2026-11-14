@@ -7,7 +7,7 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 |----|--------|--------|--------|
 | 1.1 | DONE | 1 | 7d9af6e |
 | 1.2 | DONE | 3 | bc46de3 |
-| 1.3 | TODO | 0 | — |
+| 1.3 | DONE | 2 | 4dd0c77 |
 | 1.4 | TODO | 0 | — |
 | 1.5 | TODO | 0 | — |
 | 1.6 | TODO | 0 | — |
@@ -37,6 +37,11 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 - [developer] 1.2 cycle 3 removed the `trim()` (parameter renamed `body`, parsed raw), documented strictness on `parse`, added test `whitespace_padded_input_is_malformed` (`"2024-01-03 "`, `" 2024-01-03"`, `"2024 . 01 . 03"`, `""` → Malformed); core lib now 17 passed / 0 failed; production LOC 112 — source: developer handoff
 - [reviewer] 1.2 cycle 3 APPROVE: standalone harness ALL assertions passed (formats, Ambiguous, InvalidDate, leap set 2024 ok / 2023+1900 err / 2000 ok, round-trip identity, 10 adversarial inputs typed Err zero panics); purity grep clean, no float literals, LOC ≈112, `///` on all public items; remaining notes low/info only (redundant empty-string guard = dead code; `year_value == 0` → InvalidDate is a defensible proleptic-Gregorian choice) — source: reviewer verdict
 - [orchestrator] 1.2 committed `bc46de3 1.2: dates` (date.rs + mod.rs + plan.md 1.2 tick + plan dir); cycles 3/5 — source: git log
+- [developer] 1.3 cycle 1: `Transaction` with the 7 contract fields, `#[derive(Debug, Eq, PartialEq)]`, `BuildError` wrapping date/money parse errors (Debug only — money.rs `ParseError` has no Eq), `from_parts` (display-form text → money::parse + date::parse), `is_income()` = `amount > 0`, 6 inline tests; core lib 23 passed / 0 failed; production section 101 lines — source: developer handoff
+- [reviewer] 1.3 cycle 1 REQUEST_CHANGES: (medium) `from_parts` doc cited plan items 2.1/2.2 for the store reader, but 2.1 is the generic `;` line codec and 2.2 the id hash — the item building `Transaction` from stored `transactions.csv` lines is 2.3, and `money::parse("-3999")` → `-399900` proves the double-scaling trap; (medium) `from_parts` was the only constructor and takes display-form text, so the store reader would build `Transaction { ... }` literals bypassing validation; (low) explicit-self `is_income(self: &Transaction)`; (low) 7 positional `&str` params transpose silently with no documented column order; (low, report-only) `MoneyParseError` in money.rs:13 derives only `Debug` while `DateParseError` derives `Eq, PartialEq` — inconsistent, later items (1.6/1.8/2.x) will need `Eq` on error enums — source: reviewer findings
+- [developer] 1.3 cycle 2 fixed both mediums: corrected citation to 2.3 with an explicit INVARIANT rule (stored minor-unit text must never go through `from_parts`, `-3999` → `-399900` example), added `from_stored(id, date, amount: i64, ...)` taking the stored minor-unit count as-is with a canonical `YYYY-MM-DD` round-trip check (new `BuildError.NonCanonicalDate` variant) and made `from_parts` delegate to it; `is_income(&self)`; documented exact contract order at the signature; 4 new tests (raw fixture rows incl. `80c63211a8#2`, non-canonical date rejection, `from_parts` == `from_stored`, description/counterparty swap inequality); core lib 27 passed / 0 failed; production LOC 147 (55 excluding doc comments) — source: developer handoff
+- [reviewer] 1.3 cycle 2 APPROVE: both mediums resolved, all 7 fields named per contract and `///`-documented, no `category` field, `is_income` correct for +/−/0 and tested, structural Eq verified, no panic path (all failures typed `BuildError`, unwraps only in tests), no scope creep, purity grep clean, no float literals, production LOC 55 excluding doc comments; remaining low finding NOT fixed: doc comments cite the store reader as `core/src/domain/store_transactions.rs` but plan item 2.3 puts it at `core/src/technical/store_transactions.rs` — carry into the item-2.x plan — source: reviewer verdict
+- [orchestrator] 1.3 committed `4dd0c77 1.3: transaction type` (transaction.rs + mod.rs + plan.md 1.3 tick + plan dir); cycles 2/5 — source: git log
 
 ## Decision log (implementation)
 | # | decision | rationale | decider | status |
@@ -46,6 +51,9 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 | 15 | 1.1 accepted at APPROVE with 4 low-severity reviewer notes left unfixed (trailing separators, i64.min round-trip, 157 LOC, mod.rs declaration order) | reviewer verdict was APPROVE and none of the notes touch a plan vector or a repo invariant; protocol only mandates fix cycles on REQUEST_CHANGES — logged here so later phases can revisit | orchestrator | JUSTIFIED |
 | 16 | 1.2 `parse` is strict about surrounding whitespace (no `trim()`; padded input → `Malformed`) | reviewer REQUEST_CHANGES cycle 2: leniency masks PDF text-extraction noise; the technical/importer layer owns whitespace stripping, the domain stays strict | reviewer→developer (decided by reviewer finding) | JUSTIFIED |
 | 17 | 1.2 year 0 (`0000-00-00`) → `InvalidDate` | reviewer info note: defensible proleptic-Gregorian choice, consistent with the 4-digit canonical range; left as implemented | developer | JUSTIFIED |
+| 18 | 1.3 two constructors: `from_parts` (statement-printed display text) delegating to `from_stored` (stored i64 minor units + canonical-date check) | reviewer cycle-1 medium: with only a display-form constructor, the store reader (plan item 2.3) would build struct literals and bypass validation, and `money::parse("-3999")` → `-399900` double-scales stored values | reviewer→developer (decided by reviewer finding) | JUSTIFIED |
+| 19 | 1.3 `BuildError` derives only `Debug` (error tests assert via `match`, not `==`) | adding `Eq` would require re-touching committed money.rs (`MoneyParseError` has no `Eq`), which is out of 1.3's scope; logged so a later item that needs error equality adds the derive to money.rs | developer | JUSTIFIED |
+| 20 | 1.3 `is_income(&self)` (not `self: &Transaction`) | reviewer low style note: the domain layer uses no explicit-self forms | developer | JUSTIFIED |
 
 ## Plan amendments
 | id | original row | amended row | rationale |

@@ -79,7 +79,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       counterparty, source. Constructor + `is_income()` (amount > 0).
       Depends: 1.1, 1.2. Tests: construction from parsed parts; sign
       convention documented and tested; struct is `#[derive(Eq)]`-able. Est. 70 LOC.
-- [ ] **1.4 Category tree** — Files: `core/src/domain/category.rs`.
+- [x] **1.4 Category tree** — Files: `core/src/domain/category.rs`.
       `parent:child` strings form a tree; validate against `categories.csv`
       content given as a string. Depends: 0.2. Tests: `food:supermarket` valid
       iff `food` exists; unknown category → error listing candidates; depth ≥ 3
