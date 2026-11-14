@@ -12,6 +12,7 @@
 
 pub mod date;
 pub mod money;
+pub mod transaction;
 
 #[test]
 fn domain_module_compiles() {}

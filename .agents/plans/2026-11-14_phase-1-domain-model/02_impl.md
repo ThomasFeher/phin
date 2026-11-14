@@ -6,7 +6,7 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 | id | status | cycles | commit |
 |----|--------|--------|--------|
 | 1.1 | DONE | 1 | 7d9af6e |
-| 1.2 | REVIEW | 2 | — |
+| 1.2 | DONE | 3 | bc46de3 |
 | 1.3 | TODO | 0 | — |
 | 1.4 | TODO | 0 | — |
 | 1.5 | TODO | 0 | — |
@@ -34,6 +34,9 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 - [developer] 1.2 cycle 3 ticked only the 1.2 box in doc/implementation/plan.md (line 72); workspace total 23 passed / 0 failed — source: developer handoff
 - [reviewer] 1.2 cycle-2 checks: scratch harness (standalone rustc copy in /tmp) → 30+ assertions OK incl. both fixture formats, `01/02/2024`→Ambiguous, `31.02.2024`→InvalidDate, leap set (2024 ok, 2023/1900 err, 2000 ok), round-trip identity, adversarial inputs typed Err with zero panics; purity grep clean; production LOC 113 ≤ 150; only the 1.2 box ticked — source: reviewer Checks run
 - [reviewer] 1.2 REQUEST_CHANGES (medium): `parse` calls `text.trim()` so `"2024-01-03 "` / `" 2024-01-03"` return Ok instead of a typed error; leniency masks PDF extraction noise — source: core/src/domain/date.rs:36, reviewer harness (2 failures)
+- [developer] 1.2 cycle 3 removed the `trim()` (parameter renamed `body`, parsed raw), documented strictness on `parse`, added test `whitespace_padded_input_is_malformed` (`"2024-01-03 "`, `" 2024-01-03"`, `"2024 . 01 . 03"`, `""` → Malformed); core lib now 17 passed / 0 failed; production LOC 112 — source: developer handoff
+- [reviewer] 1.2 cycle 3 APPROVE: standalone harness ALL assertions passed (formats, Ambiguous, InvalidDate, leap set 2024 ok / 2023+1900 err / 2000 ok, round-trip identity, 10 adversarial inputs typed Err zero panics); purity grep clean, no float literals, LOC ≈112, `///` on all public items; remaining notes low/info only (redundant empty-string guard = dead code; `year_value == 0` → InvalidDate is a defensible proleptic-Gregorian choice) — source: reviewer verdict
+- [orchestrator] 1.2 committed `bc46de3 1.2: dates` (date.rs + mod.rs + plan.md 1.2 tick + plan dir); cycles 3/5 — source: git log
 
 ## Decision log (implementation)
 | # | decision | rationale | decider | status |
@@ -41,6 +44,8 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 | 13 | 1.1 amount disambiguation: comma = decimal; without a comma, dots are thousands separators iff valid 3-digit groups, else last dot = decimal | must satisfy both plan vector `"1.000"`→100000 and fixture layout B `"-1234.56 EUR"`→-123456; no spec existed (planning finding: no amount-format spec in interface docs) | developer | JUSTIFIED |
 | 14 | 1.1 `>2` decimal digits → `Malformed`, `Overflow` only for i64-fit failures | keeps the typed-error taxonomy small and testable at i64.max | developer | JUSTIFIED |
 | 15 | 1.1 accepted at APPROVE with 4 low-severity reviewer notes left unfixed (trailing separators, i64.min round-trip, 157 LOC, mod.rs declaration order) | reviewer verdict was APPROVE and none of the notes touch a plan vector or a repo invariant; protocol only mandates fix cycles on REQUEST_CHANGES — logged here so later phases can revisit | orchestrator | JUSTIFIED |
+| 16 | 1.2 `parse` is strict about surrounding whitespace (no `trim()`; padded input → `Malformed`) | reviewer REQUEST_CHANGES cycle 2: leniency masks PDF text-extraction noise; the technical/importer layer owns whitespace stripping, the domain stays strict | reviewer→developer (decided by reviewer finding) | JUSTIFIED |
+| 17 | 1.2 year 0 (`0000-00-00`) → `InvalidDate` | reviewer info note: defensible proleptic-Gregorian choice, consistent with the 4-digit canonical range; left as implemented | developer | JUSTIFIED |
 
 ## Plan amendments
 | id | original row | amended row | rationale |

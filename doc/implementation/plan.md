@@ -74,7 +74,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       internally. Depends: 0.2. Tests: each fixture format parses; ambiguous
       `01/02/2024` rejected explicitly; invalid calendar dates rejected;
       round-trip. Est. 80 LOC.
-- [ ] **1.3 Transaction type** — Files: `core/src/domain/transaction.rs`.
+- [x] **1.3 Transaction type** — Files: `core/src/domain/transaction.rs`.
       Fields: id, date, amount (minor units), currency, description,
       counterparty, source. Constructor + `is_income()` (amount > 0).
       Depends: 1.1, 1.2. Tests: construction from parsed parts; sign
