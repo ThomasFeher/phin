@@ -84,7 +84,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       content given as a string. Depends: 0.2. Tests: `food:supermarket` valid
       iff `food` exists; unknown category → error listing candidates; depth ≥ 3
       allowed; cycle detection. Est. 100 LOC.
-- [ ] **1.5 Rule file parsing** — Files: `core/src/domain/rule.rs`. Parse the
+- [x] **1.5 Rule file parsing** — Files: `core/src/domain/rule.rs`. Parse the
       text rule format (`pattern → category`, `#` comments, empty lines, file
       order = precedence). Depends: 1.4. Tests: comment-only file; malformed
       rule line → error with line number, not a panic; pattern types: literal,

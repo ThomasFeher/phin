@@ -47,8 +47,8 @@ comment appear in the `testdata/` fixtures of plan item 0.3.
   (annotations, overrides) live in side files keyed by transaction id.
 - `annotations.csv` and `overrides.csv` are append-only as well: a
   superseded entry stays in the file, the **last** entry for an id wins.
-- `categories.csv` and `rules/*.txt` are directly editable (rewritten by
-  hand, only `rules/learned.txt` is appended by the core).
+- `categories.csv` and `rules/*` are directly editable (rewritten by
+  hand; only `rules/90-learned.txt` is appended by the core).
 - Every write is atomic: write a temporary file, rename it into place. A
   crash therefore never leaves a half-written file, and a cancelled command
   discards its partial result.
@@ -116,17 +116,25 @@ Columns: `parent;name`
 
 Order in the file is the display order and is preserved.
 
-### `rules/*.txt` — one rule per line
+### `rules/*` — one rule per line
 
+- Extension convention: user files use the `.rules` extension, while the core-appended learned-rule file is `rules/90-learned.txt`.
 - Syntax: `pattern -> category`, `#` starts a comment, empty lines ignored.
-- Several files, read in an explicit order; file order = precedence
-  (built-in rules before learned rules, user files in between).
-- Learned rules go to `rules/learned.txt` so that hand-written and generated
+  The separator is the ASCII `->`; the unicode arrow `→` is NOT accepted.
+- Pattern markers on the pattern side: a leading `words:` marks a comma-separated
+  word list, a leading `regex:` marks a Rust `regex` pattern, no marker means
+  literal text.
+- Precedence: a LATER rule beats an EARLIER one within a file. Files are read
+  in the order given by a NUMERIC FILENAME PREFIX (`rules/10-built-in.rules`,
+  `rules/50-user.rules`, `rules/90-learned.txt`, names sorted lexically):
+  built-in rules first, user files in between, learned rules last. Learned
+  rules therefore sit in the highest-prefix file and stay distinguishable from
+  hand-written ones.
+- Learned rules go to the highest-prefix file so that hand-written and generated
   rules stay distinguishable; learned rules are shown to the user and can be
   disabled.
-- Draft, not yet accepted: how "explicit order" is expressed on disk (file
-  name prefix vs. a list in the configuration) is decided in plan item 1.5;
-  the fixtures use a single `rules/sample.rules`.
+- Draft, not yet accepted: the fixtures still use a single `rules/sample.rules`
+  without a numeric prefix.
 
 ### `state/` — machine state, not user data
 

@@ -1,3 +1,6 @@
 [package]
 name = "core"
 edition = "2024"
+
+[dependencies]
+regex = "1.13.1"

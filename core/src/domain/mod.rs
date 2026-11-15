@@ -13,6 +13,7 @@
 pub mod category;
 pub mod date;
 pub mod money;
+pub mod rule;
 pub mod transaction;
 
 #[test]
