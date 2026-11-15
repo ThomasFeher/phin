@@ -101,7 +101,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       confidence 0…1. Depends: 1.3. Tests: confidence clamped; annotation
       without existing transaction id is representable (orphan case); items
       list may be empty. Est. 80 LOC.
-- [ ] **1.8 Learning a rule from a correction** — Files:
+- [x] **1.8 Learning a rule from a correction** — Files:
       `core/src/domain/learn.rs`. Given a transaction and a category, propose a
       rule (merchant/description pattern) and report how many transactions it
       would affect. Depends: 1.6. Tests: pattern is not the full description

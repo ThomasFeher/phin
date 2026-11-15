@@ -14,6 +14,7 @@ pub mod annotation;
 pub mod category;
 pub mod classify;
 pub mod date;
+pub mod learn;
 pub mod money;
 pub mod rule;
 pub mod transaction;
