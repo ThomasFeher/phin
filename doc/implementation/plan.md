@@ -114,7 +114,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
 
 # Phase 2 — Data Store (append-only text files)
 
-- [ ] **2.1 CSV line codec** — Files: `core/src/technical/csv.rs`. Read/write
+- [x] **2.1 CSV line codec** — Files: `core/src/technical/csv.rs`. Read/write
       one record, `;` separator, `#` comment lines, quoted fields. Depends: 0.2.
       Tests: field with `;`, with `"`, with newline rejected explicitly; empty
       optional columns; CRLF tolerated; round-trip identity for 20 random

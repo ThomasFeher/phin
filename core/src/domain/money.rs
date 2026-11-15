@@ -9,7 +9,7 @@
 //! not fit it yields a typed error rather than a panic.
 
 /// Reason an amount string could not be read as a count of cents.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ParseError {
     /// Empty, or a character that is not a digit, a separator or a currency
     /// marker; also a thousands grouping that is not groups of three digits.

@@ -5,6 +5,8 @@
 //! performs I/O belongs here; the domain only ever sees the data this side
 //! produces.
 
+pub mod csv;
+
 #[test]
 fn technical_module_compiles() {}
 
