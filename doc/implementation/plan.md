@@ -119,7 +119,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       Tests: field with `;`, with `"`, with newline rejected explicitly; empty
       optional columns; CRLF tolerated; round-trip identity for 20 random
       records (generated in the test). Est. 120 LOC.
-- [ ] **2.2 Content-hash transaction id** — Files: `core/src/technical/id.rs`.
+- [x] **2.2 Content-hash transaction id** — Files: `core/src/technical/id.rs`.
       `id = short hash(date, amount, currency, description, counterparty,
       source identity)` + occurrence suffix `#2` for identical content.
       Depends: 1.3, 2.1. Tests: same transaction from a different path → same

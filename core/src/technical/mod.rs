@@ -6,6 +6,7 @@
 //! produces.
 
 pub mod csv;
+pub mod id;
 
 #[test]
 fn technical_module_compiles() {}
