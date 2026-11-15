@@ -324,3 +324,50 @@ can start with 6.1 as soon as 3.4 and 3.6 are done. Phase 7 last.
 - Every protocol and file format in `doc/interfaces/` matches the code
   (checked by the doc-reading tests of 3.1 and 7.5).
 - No task was closed without unit tests added in the same commit.
+
+# Review notes — Phase 1 → Phase 2
+
+Left open by the Phase-1 reviewers on their own merits (low-severity notes at an
+APPROVE, or changes out of an item's declared scope). A Phase-2 item must act on
+these, not re-decide them. Full review logs:
+`.agents/plans/2026-11-14_phase-1-domain-model/02_impl.md` (Findings log and
+Decision log (implementation)).
+
+- **1.3 → 2.1/2.3/3.x — error enums are inconsistent.** `MoneyParseError`
+  (`core/src/domain/money.rs`) derives only `Debug`, while `DateParseError`
+  derives `Eq, PartialEq`. Any item that compares parse errors with `==` must
+  add `Eq, PartialEq` to `MoneyParseError` first; all its variants are empty, so
+  the derive is harmless.
+- **1.3 → 2.3 — double scaling is convention-only.** The store reader must build
+  `Transaction` values with `from_stored` (stored `i64` minor-unit count +
+  canonical `YYYY-MM-DD`), never `from_parts`: `money::parse("-3999")` yields
+  `-399900`. Stated as an INVARIANT on `from_parts`; not type-enforced.
+- **1.6 — regex patterns are recompiled per (rule, transaction) pair.** Measured:
+  500 regex rules × 1000 transactions = 0.26 s debug / ~15 ms release. If 2.x/3.x
+  profiling shows this hot, hoist compiled patterns to the caller
+  (`Vec::<(Rule, Option::<regex::Regex>)>`); do not add a hidden cache to the pure
+  domain.
+- **1.6 — the regex input guard is silent.** A description longer than
+  `MAX_REGEX_INPUT` = 512 code points skips ALL `regex:` rules (Literal and
+  `words:` still match), so the same transaction can classify differently purely
+  by description length with no signal to the caller. Documented in
+  `classify.rs`; it must also be visible where users write `regex:` rules
+  (`rule.rs` module doc — done in this sweep).
+- **1.6 — `Rule`'s fields are `pub`** (needed by the sibling module `classify`), so
+  a caller can build a `Words` rule with an empty `words` list, which never
+  matches. Add smart constructors (`Rule::literal/words/regex`) in `rule.rs` when a
+  later item constructs rules outside `parse_rules`; do NOT privatise the fields —
+  that ripples into 1.5's committed code.
+- **1.6/1.8 — `words:` matching is substring containment**, so `words:NIGHT`
+  matches `MIDNIGHT`; learned proposals (1.8) are always `Literal` to keep a
+  merchant-name prefix contiguous. Token-accurate matching needs a `regex:` rule.
+- **1.8 → 2.x — `rule_to_text` round-trips only canonical patterns.** Proposals are
+  token-join Literals (ASCII alnum + single spaces) and Words render as
+  `words: a, b`; a pattern containing `->` or a leading `words:`/`regex:` marker
+  does not survive render→parse. 2.x must not render arbitrary user rules through
+  it.
+- **Fixed in this same commit** (were stale/wrong before): `doc/architecture/architecture.md`
+  said `rules/learned.txt` → now `rules/90-learned.txt` (the finalized numeric-prefix
+  convention of plan item 1.5); `transaction.rs` doc comments cited the store reader
+  as `core/src/domain/store_transactions.rs` → now `core/src/technical/store_transactions.rs`
+  (plan item 2.3 is in the technical layer).

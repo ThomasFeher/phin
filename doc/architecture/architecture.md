@@ -238,7 +238,7 @@ CFG -> ANA
 UI -> CORE : {"cmd":"set-category","id":"3f9a1c7e","category":"food:supermarket","reason":"user"}
 CORE -> Domain : derive new rule from transaction 3f9a1c7e
 CORE -> DataStore : append override 3f9a1c7e
-CORE -> DataStore : append learned rule to rules/learned.txt
+CORE -> DataStore : append learned rule to rules/90-learned.txt
 CORE -> UI : {"event":"result","affected":183}
 UI -> CORE : {"cmd":"report","format":"html","year":2024}
 @enduml

@@ -83,7 +83,7 @@ pub struct Transaction {
 /// INVARIANT: `from_parts` accepts statement-printed text only; a stored
 /// minor-unit count (e.g. the CSV field `-3999`) must NEVER be passed to it,
 /// since `money::parse("-3999")` would yield `-399900`. The store reader of
-/// plan item 2.3 (`core/src/domain/store_transactions.rs`, "reader into
+/// plan item 2.3 (`core/src/technical/store_transactions.rs`, "reader into
 /// `Transaction` values") reads `transactions.csv` lines and must build rows
 /// with [`from_stored`] instead, which takes the stored i64 count as-is.
 pub fn from_parts(id: &str, date: &str, amount: &str, currency: &str, description: &str, counterparty: &str, source: &str) -> Result::<Transaction, BuildError> {
@@ -100,7 +100,7 @@ pub fn from_parts(id: &str, date: &str, amount: &str, currency: &str, descriptio
 
 /// Build a transaction from the values exactly as `transactions.csv` stores
 /// them — this is the constructor the store reader of plan item 2.3
-/// (`core/src/domain/store_transactions.rs`, "reader into `Transaction` values")
+/// (`core/src/technical/store_transactions.rs`, "reader into `Transaction` values")
 /// must use, since the storage contract writes `amount` as an `i64` minor-unit
 /// count and a canonical `YYYY-MM-DD` date, not display-form text.
 /// Parameter order is the contract column order

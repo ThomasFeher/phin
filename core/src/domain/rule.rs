@@ -15,6 +15,11 @@
 //! ordered by a numeric filename prefix (`rules/10-built-in.rules`,
 //! `rules/50-user.rules`, `rules/90-learned.txt`).
 //!
+//! Regex input guard: the engine is never offered a description longer than
+//! `MAX_REGEX_INPUT` = 512 code points (`classify.rs`); such descriptions skip
+//! every `regex:` rule while Literal and `words:` rules still match, so keep
+//! `regex:` patterns aimed at merchant-name text rather than free-form notes.
+//!
 //! The unicode arrow `→` is NOT accepted as a separator; a line using it (or
 //! any other line without an ASCII `->`) is malformed.
 
