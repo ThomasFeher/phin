@@ -11,7 +11,7 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 | 1.4 | DONE | 2 | 4779666 |
 | 1.5 | DONE | 3 | 1ee3400 |
 | 1.6 | DONE | 1 | 64938f2 |
-| 1.7 | TODO | 0 | — |
+| 1.7 | DONE | 1 | bc62553 |
 | 1.8 | DONE | 2 | a162b73 |
 
 ## Findings log (implementation)
