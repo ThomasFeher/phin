@@ -66,6 +66,7 @@ See `testdata/README.md` for what each fixture simulates.
 ## Docs
 
 - `doc/architecture/architecture.md` — architecture and design decisions.
+- `doc/architecture/{core-protocol,plugin-protocol,data-files}.md` — interface
+  documentation (Core Protocol, Plugin Protocol, Data File Interface); part of
+  the architecture, source of truth for the protocols and the data files.
 - `doc/implementation/plan.md` — implementation plan (ground rules).
-- `doc/interfaces/` — interface documentation (Core Protocol, Plugin Protocol,
-  Data File Interface); to be written in the next plan item (0.5).

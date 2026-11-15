@@ -21,8 +21,9 @@ that implements it.
 5. **Never use the user's real data.** All tests run on fixtures under
    `testdata/` (see task 0.3). Reading `~/…/thunderbird` in code or in tests is
    forbidden.
-6. **Document public items** with `///` doc comments; the interface docs
-   (`doc/interfaces/`) are the source of truth for the protocols and must be
+6. **Document public items** with `///` doc comments; the interface docs in
+   `doc/architecture/` (`core-protocol.md`, `plugin-protocol.md`,
+   `data-files.md`) are the source of truth for the protocols and must be
    updated in the task that changes a protocol or file format.
 7. **Commit per task**, message = task id and title (e.g. `2.4 transaction id`).
 8. **If a decision in the architecture doc has to be changed to finish a task,
@@ -55,6 +56,8 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       files live, where the docs live. Depends: 0.1. Est. 40 lines.
 - [x] **0.5 Interface documentation, part 1** — Files: `doc/interfaces/README.md`
       (index), `doc/interfaces/core-protocol.md` (commands, events, cancel,
+      … — later moved to `doc/architecture/`, index content merged into
+      `doc/architecture/architecture.md`, see "Technical Context")
       versioning, JSON-Lines examples), `doc/interfaces/plugin-protocol.md`
       (`probe`, `extract`, `analyse`), `doc/interfaces/data-files.md` (every
       file, every column, append-only rule, id format). Depends: 0.4.
@@ -156,7 +159,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       event.rs, codec.rs}`. Encode/decode one JSON object per line, `v` field.
       Depends: 0.5. Tests: unknown command → typed error, not panic; unknown
       field ignored; multi-line input split correctly; unicode preserved;
-      decoding the examples from `doc/interfaces/core-protocol.md` (read the
+      decoding the examples from `doc/architecture/core-protocol.md` (read the
       file in the test). Est. 130 LOC.
 - [ ] **3.2 Command table (single source of vocabulary)** — Files:
       `proto/src/commands.rs`. Data-driven table of command name → parameter
@@ -306,7 +309,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       Depends: all of 4–6. Runs: import fixtures → refine one classification →
       confirm one annotation → analyze → report markdown; asserts the final
       table and that a second run is a no-op (idempotence). Est. 120 LOC.
-- [ ] **7.5 Documentation update pass** — Files: `doc/interfaces/*` (transport,
+- [ ] **7.5 Documentation update pass** — Files: `doc/architecture/{core-protocol,plugin-protocol,data-files}.md` (transport,
       handshake, lock file), `README.md`, `doc/architecture/architecture.md`
       (decisions already recorded: egui, transport, `pdftotext`). Depends: 7.4.
       Est. 150 lines.
@@ -321,7 +324,7 @@ can start with 6.1 as soon as 3.4 and 3.6 are done. Phase 7 last.
 
 - All tasks checked, `cargo test` green at the workspace root.
 - Requirements 001–005 demonstrable through the CLI alone, on fixtures.
-- Every protocol and file format in `doc/interfaces/` matches the code
+- Every protocol and file format in `doc/architecture/` matches the code
   (checked by the doc-reading tests of 3.1 and 7.5).
 - No task was closed without unit tests added in the same commit.
 

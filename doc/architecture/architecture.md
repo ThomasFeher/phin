@@ -56,7 +56,25 @@ title: Phin Architecture Documentation
 
 ## Technical Context
 
-Currently no external parts outside the user's computer are planned. The mail data of the user is large (≈ 4.4 GB of mbox files across four accounts), so the mail importer has to be incremental. The Thunderbird databases may be locked while Thunderbird is running, so they must be opened read-only and treated as optional.
+Currently no external parts outside the user's computer are planned. The mail
+data of the user is large (≈ 4.4 GB of mbox files across four accounts), so
+the mail importer has to be incremental. The Thunderbird databases may be
+locked while Thunderbird is running, so they must be opened read-only and
+treated as optional.
+
+The detailed specifications of the interfaces are separate files next to this
+file, part of the architecture documentation: the [Plugin
+Protocol](plugin-protocol.md) and the [Data File Interface](data-files.md)
+describe the environment interfaces around the core; the [Core
+Protocol](core-protocol.md) is the client–server interface used by the User
+Interface and the core daemon (see the Building Block View). These files are
+the **source of truth** for the two wire protocols and for the on-disk data
+files: where this file records an accepted decision, they restate it; where a
+detail was not decided here, their text marks it as **draft, not yet
+accepted**; if code and these files disagree, the files win (implementation
+plan, ground rule 6). Every JSON example in these files sits in a fenced
+block preceded by an HTML marker `<!-- test-example id=… -->` so that the
+doc-reading tests of plan item 3.1 can extract them.
 
 # Solution Strategy
 
@@ -108,7 +126,7 @@ Contained Building Blocks
 
 Important Interfaces
 
-:   **Core Protocol** (JSON-Lines over a pipe/socket): commands in, events out. **Plugin Protocol** (JSON-Lines over a pipe): `probe` / `extract` for importers, `analyse` for analyses. **Data File Interface**: the human editable text files in the working directory.
+:   **Core Protocol** (JSON-Lines over a pipe/socket): commands in, events out. **Plugin Protocol** (JSON-Lines over a pipe): `probe` / `extract` for importers, `analyse` for analyses. **Data File Interface**: the human editable text files in the working directory. Each has a detailed specification next to this file: [Core Protocol](core-protocol.md), [Plugin Protocol](plugin-protocol.md), [Data File Interface](data-files.md).
 
 ## Level 1
 
@@ -120,7 +138,7 @@ Purpose/Responsibility
 
 Interfaces
 
-:   Implements the Core Protocol as client: sends commands, consumes events (`result`, `progress`, `log`, `error`, `cancelled`).
+:   Implements the Core Protocol as client: sends commands, consumes events (`result`, `progress`, `log`, `error`, `cancelled`). See [core-protocol.md](core-protocol.md) for the full specification.
 
 Directory/Location
 
@@ -150,11 +168,11 @@ Fulfilled Requirements
 
 ### Interface Core Protocol
 
-:   Line based, one JSON object per line, versioned by a `v` field. Commands are verb first (`{"cmd":"import","path":"…"}`). Events are `{"event":"progress",…}`, `{"event":"result",…}`, `{"event":"log","level":"info",…}`, `{"event":"error",…}`. A `cancel` command is honoured between items. The vocabulary is data driven: command names and their parameters are described in a table that both sides read, so adding a command does not require changes in the interface layer.
+:   Line based, one JSON object per line, versioned by a `v` field. See [core-protocol.md](core-protocol.md) for the full specification. Commands are verb first (`{"cmd":"import","path":"…"}`). Events are `{"event":"progress",…}`, `{"event":"result",…}`, `{"event":"log","level":"info",…}`, `{"event":"error",…}`. A `cancel` command is honoured between items. The vocabulary is data driven: command names and their parameters are described in a table that both sides read, so adding a command does not require changes in the interface layer.
 
 ### Interface Plugin Protocol
 
-:   Same JSON-Lines encoding, different vocabulary. Importer: `probe {file} -> {supported: bool, kind}` and `extract {file} -> transactions`. Analysis: `analyse {transactions, categories} -> table`. Plugins are discovered from the configuration; they must be executable and are started as separate processes.
+:   Same JSON-Lines encoding, different vocabulary. See [plugin-protocol.md](plugin-protocol.md) for the full specification. Importer: `probe {file} -> {supported: bool, kind}` and `extract {file} -> transactions`. Analysis: `analyse {transactions, categories} -> table`. Plugins are discovered from the configuration; they must be executable and are started as separate processes.
 
 ## Level 2
 
