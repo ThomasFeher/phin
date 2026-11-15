@@ -89,7 +89,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       order = precedence). Depends: 1.4. Tests: comment-only file; malformed
       rule line → error with line number, not a panic; pattern types: literal,
       word list, regex (explicitly marked); ordering preserved. Est. 110 LOC.
-- [ ] **1.6 Rule engine** — Files: `core/src/domain/classify.rs`. Pure function
+- [x] **1.6 Rule engine** — Files: `core/src/domain/classify.rs`. Pure function
       `(transaction, rules, overrides) → category | unknown`. Precedence:
       override > learned rule > built-in rule. Depends: 1.3, 1.4, 1.5.
       Tests: each precedence level wins in a crafted conflict; no match →

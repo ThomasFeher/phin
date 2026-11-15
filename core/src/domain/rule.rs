@@ -37,15 +37,15 @@ pub enum PatternKind {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Rule {
     /// 1-based line number in the source text where the rule was read.
-    line: usize,
+    pub line: usize,
     /// Syntactic form of the pattern.
-    kind: PatternKind,
+    pub kind: PatternKind,
     /// Raw pattern text after the marker is stripped.
-    pattern: String,
+    pub pattern: String,
     /// Split word list; empty unless `kind == PatternKind::Words`.
-    words: Vec::<String>,
+    pub words: Vec::<String>,
     /// Category path, e.g. `food:supermarket`.
-    category: String,
+    pub category: String,
 }
 
 /// What can go wrong while parsing one rule line.

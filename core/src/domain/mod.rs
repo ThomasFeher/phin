@@ -11,6 +11,7 @@
 //! in this subtree for forbidden module paths and fails if it finds one.
 
 pub mod category;
+pub mod classify;
 pub mod date;
 pub mod money;
 pub mod rule;

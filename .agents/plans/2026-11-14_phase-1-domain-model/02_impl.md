@@ -9,7 +9,7 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 | 1.2 | DONE | 3 | bc46de3 |
 | 1.3 | DONE | 2 | 4dd0c77 |
 | 1.4 | DONE | 2 | 4779666 |
-| 1.5 | TODO | 0 | — || 1.6 | TODO | 0 | — |
+| 1.5 | DONE | 3 | 1ee3400 || 1.6 | TODO | 0 | — |
 | 1.7 | TODO | 0 | — |
 | 1.8 | TODO | 0 | — |
 
@@ -46,6 +46,7 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 - [developer] 1.4 cycle 2 closed all three: helpers replaced by `text.lines()` / `line.split(';').collect()` / `path.split(':')`; `validate` now calls `options_at` (0 build warnings); `UnknownCategory` candidates fall back to the reached node + its siblings (`fallback_names`) with new test `unknown_segment_below_a_leaf_still_names_candidates`; `first_cycle_node` returns an index with the self-parent case folded into the colouring walk; production LOC 123–125 (143 counting the `#[cfg(test)]` helper block); core lib 39 passed / 0 failed — source: developer handoff
 - [reviewer] 1.4 cycle 2 APPROVE: /tmp harness (module copied verbatim, `timeout 10`) ALL checks passed — `food:supermarket` valid, `food:garage` → `UnknownCategory("garage", [supermarket, restaurant])`, 3-level and 4-level graft valid, `finance:expense:transport:garage` and 5-level path → non-empty candidates `[transport, utilities]`, cycles `a;b`+`b;a` → `Cycle("b")`, `a;a` → `Cycle("a")`, 5-node chain and fixture-grafted cycle → typed error and terminate, `a`/`a;b;c` → `MalformedRow(1)`, comment-only file → empty tree, duplicate name → `DuplicateName`, roots/children order == fixture order; `cargo build --workspace` 0 warnings; production LOC 123 excluding doc/test helpers ≤ ~150; `///` on all public items; no panic paths — source: reviewer verdict
 - [orchestrator] 1.4 committed `4779666 1.4: category tree` (category.rs + mod.rs + plan.md 1.4 tick + plan dir); cycles 2/5 — source: git log
+- [orchestrator] 1.5 subagent trouble: two early attempts for 1.5 produced NO output and NO file changes (one aborted, one output-cap); the working pattern was a highly prescriptive spec (exact signatures/enum variants) plus "write the file in one call, minimal reasoning" — keep later briefings prescriptive — source: subagent results, git status after each attempt
 - [orchestrator] 1.5 pre-flight: `doc/interfaces/data-files.md:127` defers the "explicit order" mechanism on disk to plan item 1.5 and no fixture/doc precedent exists, so it was asked of the user (NEEDS_USER) before item 1.5 started — source: doc/interfaces/data-files.md:119-129
 - [orchestrator] 1.4 remaining info note (not fixed, accepted at APPROVE): `UnknownCategory` may still carry an empty candidate list only for a path into a zero-node tree (empty file) — documented on the payload doc-comment, nothing to name — source: reviewer finding
 
@@ -66,6 +67,9 @@ VCS: git | branch: main (never changed by this run) | base: d076a91294493be26a3d
 | 24 | 1.4 uses `str::lines()`/`str::split` instead of a shared splitter helper | reviewer cycle-1 high finding: 214 LOC vs the ~150 ground-rule cap; promoting date.rs's private `split_on` into a shared helper would pre-empt the CSV codec owned by plan item 2.1 in the technical layer | reviewer→developer (decided by reviewer finding) | JUSTIFIED |
 | 25 | 1.5 the "explicit order" of `rules/*.txt` on disk is a numeric filename prefix (`rules/10-built-in.rules`, `rules/50-user.rules`, `rules/90-learned.txt`; order = lexical sort of file names) | genuine fork with no precedent: data-files.md:127 explicitly defers it to plan item 1.5 and it changes the user-visible data-file layout, so the user chose ("B") rather than the agent deciding | user | NEEDS_USER resolved ("B") |
 | 26 | 1.5/1.6 precedence direction: a LATER-declared rule/file beats an earlier one | the only coherent reading of three sources: 1.5 "file order = precedence", data-files.md "built-in rules before learned rules, user files in between", and 1.6 "override > learned rule > built-in rule" — earlier-wins would contradict the latter two | agent | JUSTIFIED |
+| 27 | 1.5 `words:` word lists split on COMMAS in the rule text | genuine micro-fork left open by the plan (only the `words:` marker was settled by the user); comma splitting matches the fixture's comma-containing descriptions (e.g. `"TAXI AIRPORT; NIGHT"`) and keeps `|` free for the annotation `items` separator (data-files.md:79) | developer | JUSTIFIED |
+| 28 | 1.5 the unicode arrow `→` is NOT an accepted separator (such a line is a malformed-line error) | plan prose uses `→` but the fixture and data-files.md use ASCII `->`; accepting both would make the error message ambiguous; documented in rule.rs module doc + data-files.md | developer | JUSTIFIED |
+| 29 | 1.5 rule-file extension convention: user files `*.rules`, the core-appended learned file is `rules/90-learned.txt`, section heading glob `rules/*` | needed to make the numeric-prefix ordering (decision 25) expressible; the fixture's unprefixed `rules/sample.rules` stays flagged provisional/draft in data-files.md | developer (with user choice B) | JUSTIFIED |
 
 ## Plan amendments
 | id | original row | amended row | rationale |
