@@ -96,7 +96,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       `unknown`; same input always same output (called twice); 500 rules ×
       1000 transactions completes in a test without timeout; regex catastrophic
       case guarded (length limit). Est. 120 LOC + 12 tests.
-- [ ] **1.7 Annotation + confidence** — Files: `core/src/domain/annotation.rs`.
+- [x] **1.7 Annotation + confidence** — Files: `core/src/domain/annotation.rs`.
       Annotation references a transaction id, has text/items, source, and a
       confidence 0…1. Depends: 1.3. Tests: confidence clamped; annotation
       without existing transaction id is representable (orphan case); items
