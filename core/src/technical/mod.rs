@@ -7,6 +7,7 @@
 
 pub mod csv;
 pub mod id;
+pub mod store_transactions;
 
 #[test]
 fn technical_module_compiles() {}

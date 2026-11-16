@@ -125,7 +125,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       Depends: 1.3, 2.1. Tests: same transaction from a different path → same
       id; two identical transactions in one file get `…` and `…#2`; hash length
       stable; hand-edited field → different id (documented in test name). Est. 90 LOC.
-- [ ] **2.3 `transactions.csv` reader/writer** — Files:
+- [x] **2.3 `transactions.csv` reader/writer** — Files:
       `core/src/technical/store_transactions.rs`. Append-only writer (never
       rewrites existing lines), reader into `Transaction` values, skip known
       ids on append. Depends: 2.1, 2.2, 1.3. Tests: appending an existing
