@@ -141,7 +141,7 @@ Order in the file is the display order and is preserved.
 | Path | Meaning |
 |------|---------|
 | `state/core.lock` | Lock file of the running core daemon: the address it listens on plus its nonce (see `core-protocol.md`). Written at daemon start-up, removed on exit. |
-| `state/markers/` | One marker per mbox file so the mail importer can resume incrementally. Draft, not yet accepted: file name and content format are fixed in plan item 4.5. |
+| `state/markers.csv` | Import markers, one record per source file so the mail importer can resume incrementally. Uses the CSV codec above; columns `path;mtime;size;offset`, documented in a `# columns:` comment. A corrupt marker file is treated as empty, i.e. everything is reprocessed. Fixed here (decision 8, plan item 2.7); the deferral to plan item 4.5 is superseded. |
 
 ### Configuration (TOML)
 

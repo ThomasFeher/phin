@@ -148,7 +148,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       file changes the category of all matching transactions without touching
       `transactions.csv`; orphaned override reported; re-read twice gives
       identical result. Est. 120 LOC.
-- [ ] **2.7 Import markers (`state/`)** — Files: `core/src/technical/state.rs`.
+- [x] **2.7 Import markers (`state/`)** — Files: `core/src/technical/state.rs`.
       Per source file: path, mtime, size, last processed offset. Depends: 2.1.
       Tests: unchanged file → marker says "skip"; changed mtime → reprocess;
       marker file corrupt → treated as empty with a warning. Est. 90 LOC.
