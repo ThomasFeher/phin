@@ -11,7 +11,7 @@ VCS: git | branch: main (never changed by me) | base: 33308d525f2bac867aaec664d2
 | 2.4 | DONE | 1 | 4c408312b17ca80f848945ed0bf28654e04d874e |
 | 2.5 | DONE | 1 | 34a0bc857a34d9d41f9953197d09246c513b780a |
 | 2.6 | DONE | 1 | 92d2e8d38398035faf187865a46dba655b59e940 |
-| 2.7 | DONE | 1 | pending |
+| 2.7 | DONE | 1 | 1f05f9bd165210968851a0fb04951db961a90fcc |
 
 ## Findings log (implementation)
 - [scout] tree dirty outside plan dir before item 1: `Cargo.lock` untracked, not matched by `.gitignore` (which lists only `/target`, `*.bak`); it is cargo-generated (`version = 4`, header comment) — source: git status --short / cat .gitignore / head Cargo.lock
@@ -56,6 +56,9 @@ VCS: git | branch: main (never changed by me) | base: 33308d525f2bac867aaec664d2
 ## Decision log (implementation)
 | # | decision | rationale | decider (agent|user) | status (JUSTIFIED | NEEDS_USER resolved) |
 | 12 | pre-run dirty tree: `Cargo.lock` untracked outside the plan dir — how to handle (commit / gitignore / leave it) | skill rule: never sweep foreign pre-existing changes into an item commit on my own judgement; must ask | user | NEEDS_USER resolved: user chose (c) standalone commit before item 1 -> committed as `bc23d2026fceab7226ed6cbe70a19dd16251875a` (`chore: track Cargo.lock (pre-run dirty tree, user decision c)`) |
+
+## Run summary (all items DONE)
+Items 2.1-2.7 DONE, 7 commits: 2.1 ae2782979fde4e470c65b227528c5c68d26e633d, 2.2 a141ed073f1e302b7eea5201e5f421d143a6442a (2 cycles), 2.3 3361f4aea23778cc15e8e3843182ee0a4c24bb41, 2.4 4c408312b17ca80f848945ed0bf28654e04d874e, 2.5 34a0bc857a34d9d41f9953197d09246c513b780a, 2.6 92d2e8d38398035faf187865a46dba655b59e940, 2.7 1f05f9bd165210968851a0fb04951db961a90fcc; pre-run commits: plan dbe8ca98d8677acd7229d32797c41c2a75217de9, Cargo.lock bc23d2026fceab7226ed6cbe70a19dd16251875a (user decision c). Success check `cargo test --workspace` green at every item (core lib 88 -> 94 -> 101 -> 111 -> 117 -> 121 -> 124 tests, 0 failed) and `cargo build --workspace` 0 warnings. No plan amendments were needed (all 7 rows shipped as written). Harness note: several subagent calls returned no output or were aborted (`Agent toolUse: Error: Subagent was aborted`, `Agent length: Error: Subagent was aborted`, `(no output)`) — 3 developer dispatches for 2.3, 2 for 2.4, 1 for 2.6 produced nothing and no file changes; the 2.2 cycle-1 developer handoff was truncated mid-sentence after it had already written files (the reviewer then verified the change and demanded changes, so it became cycle 2); 2 reviewer calls also returned nothing and were re-dispatched. Items 2.2-2.6 were therefore implemented through split dispatches (reader/writer, annotations+overrides/categories, view core/tests) but each was reviewed as ONE whole change and committed exactly once. 2.1, 2.5 and 2.7 needed a single developer dispatch each.
 
 ## Plan amendments
 | id | original row | amended row | rationale |
