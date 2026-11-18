@@ -142,7 +142,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       version. Depends: 2.3. Tests: simulated crash (write then kill before
       rename) leaves original file intact; no data loss on empty target;
       directory creation. Est. 80 LOC.
-- [ ] **2.6 Merge-on-read view** — Files: `core/src/technical/view.rs`.
+- [x] **2.6 Merge-on-read view** — Files: `core/src/technical/view.rs`.
       Produce the effective transaction list: facts + annotations + derived
       category (calls domain). Depends: 2.3, 2.4, 1.6. Tests: changing one rule
       file changes the category of all matching transactions without touching
