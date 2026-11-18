@@ -132,7 +132,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       transaction adds nothing (idempotence); appending a new one keeps old
       lines byte-identical; corrupt line reported with line number and does not
       abort the rest. Est. 120 LOC.
-- [ ] **2.4 Side files: `annotations.csv`, `overrides.csv`, `categories.csv`** —
+- [x] **2.4 Side files: `annotations.csv`, `overrides.csv`, `categories.csv`** —
       Files: `core/src/technical/store_sidefiles.rs`. Read/append for each.
       Depends: 2.1. Tests: override for unknown id is stored and reported as
       orphan on read; duplicate override → last one wins, both kept in file;
