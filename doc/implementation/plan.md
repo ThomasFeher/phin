@@ -155,7 +155,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
 
 # Phase 3 — Core Protocol and Command Interpreter
 
-- [ ] **3.1 JSON-Lines codec in `proto`** — Files: `proto/src/{command.rs,
+- [x] **3.1 JSON-Lines codec in `proto`** — Files: `proto/src/{command.rs,
       event.rs, codec.rs}`. Encode/decode one JSON object per line, `v` field.
       Depends: 0.5. Tests: unknown command → typed error, not panic; unknown
       field ignored; multi-line input split correctly; unicode preserved;
