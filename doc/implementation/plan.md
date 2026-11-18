@@ -137,7 +137,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       Depends: 2.1. Tests: override for unknown id is stored and reported as
       orphan on read; duplicate override → last one wins, both kept in file;
       `categories.csv` round-trip preserves order and comments. Est. 130 LOC.
-- [ ] **2.5 Atomic write helper** — Files: `core/src/technical/fs_atomic.rs`.
+- [x] **2.5 Atomic write helper** — Files: `core/src/technical/fs_atomic.rs`.
       Write temp file in same directory, `rename`, keep `.bak` of previous
       version. Depends: 2.3. Tests: simulated crash (write then kill before
       rename) leaves original file intact; no data loss on empty target;

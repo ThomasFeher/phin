@@ -6,6 +6,7 @@
 //! produces.
 
 pub mod csv;
+pub mod fs_atomic;
 pub mod id;
 pub mod store_transactions;
 pub mod store_sidefiles;
