@@ -161,7 +161,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       field ignored; multi-line input split correctly; unicode preserved;
       decoding the examples from `doc/architecture/core-protocol.md` (read the
       file in the test). Est. 130 LOC.
-- [ ] **3.2 Command table (single source of vocabulary)** — Files:
+- [x] **3.2 Command table (single source of vocabulary)** — Files:
       `proto/src/commands.rs`. Data-driven table of command name → parameter
       spec, used by both sides. Depends: 3.1. Tests: adding a command to the
       table requires no other change (test adds one and checks it validates);

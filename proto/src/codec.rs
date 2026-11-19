@@ -31,15 +31,21 @@ use crate::command::Command;
 use crate::command::command_fields;
 use crate::command::command_from_fields;
 use crate::command::command_name;
+use crate::commands::COMMAND_FIELD;
+use crate::commands::EVENT_FIELD;
+use crate::commands::PROTOCOL_FIELD;
+use crate::commands::reserved_field;
 use crate::event::Event;
 use crate::event::event_fields;
 use crate::event::event_from_fields;
 use crate::event::event_kind;
 
-/// The protocol version this build of `proto` writes and the highest version
-/// it accepts on the wire ("Versioning": every line carries the version it was
-/// written with; a higher `v` than the daemon supports is rejected).
-pub const PROTOCOL_VERSION: i64 = 1;
+/// The protocol version this build writes and the highest version it accepts
+/// on the wire ("Versioning"). The constant is owned by the command vocabulary
+/// (see [`crate::commands::PROTOCOL_VERSION`], where plan item 3.5 expects it);
+/// this is a re-export so the name `proto::codec::PROTOCOL_VERSION` keeps
+/// working and both modules read one value.
+pub const PROTOCOL_VERSION: i64 = crate::commands::PROTOCOL_VERSION;
 
 /// What can be wrong with one line of the stream.
 #[derive(Debug, Eq, PartialEq)]
@@ -63,6 +69,13 @@ pub enum CodecError {
     MissingField(String),
     /// A parameter of a known command or event had the wrong JSON type.
     WrongType(String),
+    /// A parameter of a command frame or a payload key of a `result` event is
+    /// named like a field the framing of the line writes for itself (`v`, or
+    /// the discriminator `event` / `cmd`), so writing the frame would silently
+    /// overwrite it and reading it back would take the value as framing rather
+    /// than as data; the name is carried so the `error` event can name it back
+    /// (see [`crate::commands::reserved_field`]).
+    ReservedField(String),
     /// A command line carried two parameters that the command table writes as
     /// alternatives (`confirm-annotation` takes `id` | `reject` in
     /// `doc/architecture/core-protocol.md`), so one of them would silently
@@ -88,6 +101,7 @@ pub fn error_text(error: &CodecError) -> String {
         CodecError::UnknownEvent(name) => { return format!("unknown event: {name}"); }
         CodecError::MissingField(name) => { return format!("missing parameter: {name}"); }
         CodecError::WrongType(name) => { return format!("parameter has the wrong JSON type: {name}"); }
+        CodecError::ReservedField(name) => { return format!("parameter is reserved by the framing of a line: {name}"); }
         CodecError::ConflictingFields(first, second) => { return format!("parameters are mutually exclusive: {first} and {second}"); }
         CodecError::UnsupportedVersion(version) => { return format!("unsupported protocol version: {version}"); }
     }
@@ -128,12 +142,12 @@ pub fn decode_line(line: &str) -> Result::<Message, CodecError> {
 /// table is named `event`, while `cmd` is NOT a safe discriminator on its own: `doc/architecture/core-protocol.md` writes `cmd` inside `progress`, `result`, `error` and `cancelled` events to name the command the event is about. A line with `cmd` only is a command; a line with neither is [`CodecError.MissingDiscriminator`], and fields neither knows are ignored.
 pub fn decode_fields(fields: &mut Map::<String, Value>) -> Result::<Message, CodecError> {
     read_version(fields)?;
-    if let Some(held) = fields.remove("event") {
-        let name = held.as_str().ok_or(CodecError::WrongType("event".to_string()))?;
+    if let Some(held) = fields.remove(EVENT_FIELD) {
+        let name = held.as_str().ok_or(CodecError::WrongType(EVENT_FIELD.to_string()))?;
         return Ok(Message::Outbound(event_from_fields(name, fields)?));
     }
-    let held = fields.remove("cmd").ok_or(CodecError::MissingDiscriminator)?;
-    let name = held.as_str().ok_or(CodecError::WrongType("cmd".to_string()))?;
+    let held = fields.remove(COMMAND_FIELD).ok_or(CodecError::MissingDiscriminator)?;
+    let name = held.as_str().ok_or(CodecError::WrongType(COMMAND_FIELD.to_string()))?;
     return Ok(Message::Inbound(command_from_fields(name, fields)?));
 }
 
@@ -150,10 +164,47 @@ pub fn decode_fields(fields: &mut Map::<String, Value>) -> Result::<Message, Cod
 /// in protocol order. Re-encoding a decoded message is reproducible; a
 /// byte-for-byte comparison against the doc (plan item 7.5) has to
 /// canonicalize the key order itself.
-pub fn encode_frame(message: &Message) -> String {
+///
+/// Writing is refused with [`CodecError.ReservedField`] when the message carries
+/// a field the framing also writes for itself: a frame is one JSON object, so
+/// it can hold each name once, and a parameter of the command table or a payload
+/// key of a `result` event named `v` / `event` / `cmd` would be overwritten
+/// instead of written (see [`crate::commands::reserved_field`]).
+pub fn encode_frame(message: &Message) -> Result::<String, CodecError> {
     match message {
-        Message::Inbound(command) => { return frame_of(command_fields(command), "cmd", command_name(command)); }
-        Message::Outbound(event) => { return frame_of(event_fields(event), "event", event_kind(event)); }
+        Message::Inbound(command) => {
+            // No parameter of the command table may be named like a field the
+            // framing writes for itself: a command frame carrying `event` would
+            // be read back as an event, and one carrying `v` or `cmd` would be
+            // overwritten by the frame's own version and discriminator.
+            let fields = command_fields(command);
+            if let Some(reserved) = reserved_field(&fields) {
+                return Err(CodecError::ReservedField(reserved));
+            }
+            return frame_of(fields, COMMAND_FIELD, command_name(command));
+        }
+        Message::Outbound(event) => {
+            if let Some(reserved) = reserved_payload_field(event) {
+                return Err(CodecError::ReservedField(reserved));
+            }
+            return frame_of(event_fields(event), EVENT_FIELD, event_kind(event));
+        }
+    }
+}
+
+/// The payload key of a `result` event that the framing of a line also writes
+/// for itself, [`None`] for every other event.
+///
+/// The payload of a `result` event is written as the remaining fields of the
+/// line (`doc/architecture/core-protocol.md`), so a payload key named `v`, `event`
+/// or `cmd` would either be read back as framing or be overwritten by the
+/// framing of the frame (`cmd` even overwrites the name of the command the
+/// result belongs to), which is why the payload is checked before the frame is
+/// built instead of being dropped on the floor.
+fn reserved_payload_field(event: &Event) -> Option::<String> {
+    match event {
+        Event::Result(_, payload) => { return reserved_field(payload); }
+        _ => { return None; }
     }
 }
 
@@ -162,10 +213,21 @@ pub fn encode_frame(message: &Message) -> String {
 /// because only a command or an event can be the source of a frame. `fields`
 /// is taken by value, so the fields of the message are moved into the object
 /// that is written out instead of being copied.
-fn frame_of(mut fields: Map::<String, Value>, discriminator: &str, name: String) -> String {
+///
+/// A field of `fields` already named `v` or `discriminator` would be
+/// overwritten by the framing, so the frame is refused with
+/// [`CodecError.ReservedField`]; a field holding exactly the value the framing
+/// writes is harmless and is accepted.
+fn frame_of(mut fields: Map::<String, Value>, discriminator: &str, name: String) -> Result::<String, CodecError> {
+    let framing = [PROTOCOL_FIELD.to_string(), discriminator.to_string()].to_vec();
+    for field in framing {
+        if fields.contains_key(&field) {
+            return Err(CodecError::ReservedField(field.to_string()));
+        }
+    }
     fields.insert(discriminator.to_string(), Value::String(name));
-    fields.insert("v".to_string(), number(PROTOCOL_VERSION));
-    return Value::Object(fields).to_string() + "\n";
+    fields.insert(PROTOCOL_FIELD.to_string(), number(PROTOCOL_VERSION));
+    return Ok(Value::Object(fields).to_string() + "\n");
 }
 
 /// The version field of one line, checked and removed.
@@ -177,8 +239,8 @@ fn frame_of(mut fields: Map::<String, Value>, discriminator: &str, name: String)
 /// `error` event naming the version. A lower `v` is accepted: this build reads
 /// what older peers wrote.
 pub fn read_version(fields: &mut Map::<String, Value>) -> Result::<i64, CodecError> {
-    if let Some(held) = fields.remove("v") {
-        let read = held.as_i64().ok_or(CodecError::WrongType("v".to_string()))?;
+    if let Some(held) = fields.remove(PROTOCOL_FIELD) {
+        let read = held.as_i64().ok_or(CodecError::WrongType(PROTOCOL_FIELD.to_string()))?;
         if read > PROTOCOL_VERSION { return Err(CodecError::UnsupportedVersion(read)); }
         return Ok(read);
     }
@@ -378,7 +440,7 @@ fn assert_frame_is_one_line_and_reads_back_equal(frame: &str, written: &Message,
 /// [`assert_frame_is_one_line_and_reads_back_equal`].
 #[cfg(test)]
 fn assert_frame_round_trips(message: Message, label: &str) {
-    let frame = encode_frame(&message);
+    let frame = encode_frame(&message).unwrap();
     assert_frame_is_one_line_and_reads_back_equal(&frame, &message, label);
 }
 
@@ -453,7 +515,7 @@ fn fields_the_documentation_does_not_name_are_ignored() {
     assert!(read_cancelled == Message::Outbound(Event::Cancelled(Some("import".to_string()))));
     // Ignoring is one-directional: the writer emits only the documented fields,
     // so the core does not invent fields it does not understand.
-    let frame = encode_frame(&read_import);
+    let frame = encode_frame(&read_import).unwrap();
     assert!(!frame.contains("since"));
     assert!(!frame.contains("count"));
 }
@@ -497,14 +559,14 @@ fn unicode_text_survives_decode_and_encode() {
     let expected = Message::Outbound(Event::Log("info".to_string(), "probe: café — 1.234.567 € bank_a.pdf".to_string()));
     let decoded = decode_line(&line).unwrap();
     assert!(decoded == expected);
-    let frame = encode_frame(&decoded);
+    let frame = encode_frame(&decoded).unwrap();
     assert!(frame.contains("café"));
     assert!(frame.contains("€"));
     assert_frame_is_one_line_and_reads_back_equal(&frame, &decoded, "the unicode log event");
 
     let odd = decode_line("{\"v\":1,\"cmd\":\"import\",\"path\":\"/data/renaming/сашa коштн–100.pdf\"}");
     let read_odd = odd.unwrap();
-    let odd_frame = encode_frame(&read_odd);
+    let odd_frame = encode_frame(&read_odd).unwrap();
     assert!(odd_frame.contains("сашa"));
     assert_frame_is_one_line_and_reads_back_equal(&odd_frame, &read_odd, "the unicode import path");
 }
@@ -516,7 +578,7 @@ fn a_text_field_cannot_forge_a_second_line() {
     // a stream reader can never be handed a line that is not one object.
     let log = decode_line("{\"v\":1,\"event\":\"log\",\"level\":\"warn\",\"text\":\"a\\nb\"}");
     let read_log = log.unwrap();
-    let frame = encode_frame(&read_log);
+    let frame = encode_frame(&read_log).unwrap();
     assert!(!frame.contains("\n\n"));
     let (lines, tail) = split_lines(&frame);
     assert!(lines.len() == 1);
@@ -539,6 +601,45 @@ fn every_command_of_the_command_table_round_trips() {
     assert_frame_round_trips(Message::Inbound(Command::ListPending), "list-pending");
     assert_frame_round_trips(Message::Inbound(Command::Cancel), "cancel");
     assert_frame_round_trips(Message::Inbound(Command::Shutdown), "shutdown");
+}
+
+#[test]
+fn a_payload_field_the_framing_uses_is_refused_rather_than_dropped() {
+    // Plan item 3.1 review obligation, raised by the review of that item: the
+    // names the framing writes for itself -- the version field `v`, the
+    // discriminator `event` of an outbound line and the discriminator `cmd` of
+    // an inbound one -- must NOT be silently droppable as a field of the free
+    // payload of a `result` event. Writing such a frame would overwrite the
+    // value on the way out and read it back as framing rather than as data,
+    // so `encode_frame` refuses with [`CodecError.ReservedField`] naming the
+    // field. The names come from the vocabulary of `proto/src/commands.rs`
+    // ([`crate::commands::reserved_field`], whose own test is in that module),
+    // and the three names iterated below are the constants of that very module
+    // ([`PROTOCOL_FIELD`], [`EVENT_FIELD`] and [`COMMAND_FIELD`], imported at
+    // the top of this file), so the framing of a line and the vocabulary of the
+    // table cannot drift apart into two lists of strings.
+    let mut payload = serde_json::Map::<String, serde_json::Value>::new();
+    payload.insert("state".to_string(), serde_json::to_value("pending".to_string()).unwrap());
+    payload.insert("affected".to_string(), serde_json::to_value(183).unwrap());
+    let frame = encode_frame(&Message::Outbound(Event::Result("set-category".to_string(), payload)));
+    assert!(frame.is_ok());
+    let written = frame.unwrap();
+    let read_back = decode_line(&written);
+    if !read_back.is_ok() {
+        let reason = error_text(&read_back.unwrap_err());
+        panic!("the result frame [{written}] carrying the payload fields the interface asked for does not read back ({reason}), so a payload of ordinary names is no longer round-trippable");
+    }
+
+    // Each of the three names the framing uses, put into the payload of the only
+    // event that carries free fields, is the typed error naming that field --
+    // for `v` and `cmd` the frame would lose the value, and for `event` it
+    // would be read back as a different kind of message.
+    for name in [PROTOCOL_FIELD, EVENT_FIELD, COMMAND_FIELD].to_vec() {
+        let mut carrying = serde_json::Map::<String, serde_json::Value>::new();
+        carrying.insert(name.to_string(), serde_json::to_value(1).unwrap());
+        let refused = encode_frame(&Message::Outbound(Event::Result("report".to_string(), carrying)));
+        assert!(refused.unwrap_err() == CodecError::ReservedField(name.to_string()));
+    }
 }
 
 #[test]
@@ -599,7 +700,7 @@ fn every_test_example_of_the_core_protocol_doc_decodes_and_round_trips() {
             Ok(message) => {
                 // Re-encode, then read the frame again: the value read back
                 // must equal the value decoded from the doc's own line.
-                let frame = encode_frame(&message);
+                let frame = encode_frame(&message).unwrap();
                 match decode_line(&frame) {
                     Err(reason) => {
                         let why = error_text(&reason);
