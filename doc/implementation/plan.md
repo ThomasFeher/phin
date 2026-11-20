@@ -171,7 +171,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       events; check a cancel flag between items. Depends: 3.1. Tests: cancel
       set after 3 of 10 items → exactly one `cancelled` event, no `result`;
       progress numbers monotonic; error event carries command name. Est. 110 LOC.
-- [ ] **3.4 Command interpreter (daemon main loop)** — Files: `core/src/main.rs`
+- [x] **3.4 Command interpreter (daemon main loop)** — Files: `core/src/main.rs`
       + `core/src/protocol/interpret.rs`. Read stdin lines, dispatch, write
       events to stdout, flush per line. Depends: 3.2, 3.3. Tests: feed a
       scripted command sequence into a `StringInput` harness and assert the

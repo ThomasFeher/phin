@@ -11,6 +11,7 @@
 //! `core/src/technical/transport.rs`, and the writer here only ever hands a
 //! finished line to the [`writer::EventSink`] it was given.
 
+pub mod interpret;
 pub mod writer;
 
 #[test]
