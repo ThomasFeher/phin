@@ -166,7 +166,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       spec, used by both sides. Depends: 3.1. Tests: adding a command to the
       table requires no other change (test adds one and checks it validates);
       missing required parameter → error naming the parameter. Est. 100 LOC.
-- [ ] **3.3 Event stream writer on core side** — Files: `core/src/protocol/
+- [x] **3.3 Event stream writer on core side** — Files: `core/src/protocol/
       writer.rs`. Emit `progress`, `log`, `result`, `error`, `cancelled`
       events; check a cancel flag between items. Depends: 3.1. Tests: cancel
       set after 3 of 10 items → exactly one `cancelled` event, no `result`;

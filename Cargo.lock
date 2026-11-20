@@ -40,7 +40,9 @@ checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 name = "core"
 version = "0.0.0"
 dependencies = [
+ "proto",
  "regex",
+ "serde_json",
  "sha2",
 ]
 
