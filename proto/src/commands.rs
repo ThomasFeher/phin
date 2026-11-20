@@ -72,7 +72,10 @@ use crate::codec::CodecError;
 /// This is the constant plan item 3.5 expects here as the protocol version of
 /// `proto`; `codec` keeps the name [`crate::codec::PROTOCOL_VERSION`] as a
 /// re-export of this value, so the version field of a line and the vocabulary
-/// it carries cannot disagree.
+/// it carries cannot disagree. It is also the value the `hello` answer of the
+/// handshake carries under [`HELLO_VERSION_FIELD`], and the value the interpreter
+/// of plan item 3.5 compares the `v` of the `version` line against, so the version
+/// this build speaks is stated in exactly one place for both sides of the stream.
 pub const PROTOCOL_VERSION: i64 = 1;
 
 /// The field every line of the stream carries: the protocol version.
@@ -85,6 +88,32 @@ pub const EVENT_FIELD: &str = "event";
 /// `doc/architecture/core-protocol.md` also puts inside the `progress`, `result`,
 /// `error` and `cancelled` events to name the command the event is about.
 pub const COMMAND_FIELD: &str = "cmd";
+
+/// The field of the `hello` handshake answer that carries the nonce the interface
+/// sent, which the daemon echoes back ("Handshake").
+///
+/// The three names of the payload of a `hello` line are held here with the other
+/// names of the protocol, so the answer plan item 3.5 writes to the `version`
+/// command spells them from the vocabulary instead of from a literal in the core,
+/// and the test of this module cross-checks all three against the fields of the
+/// `core-handshake-response` example of the doc.
+pub const HELLO_NONCE_FIELD: &str = "nonce";
+
+/// The field of the `hello` handshake answer that names this daemon instance; the
+/// doc's draft marks it informational.
+pub const HELLO_SESSION_FIELD: &str = "session";
+
+/// The field of the `hello` handshake answer that carries the protocol version of
+/// the daemon writing it.
+///
+/// It is a separate name from [`PROTOCOL_FIELD`] because it is a payload field of
+/// one event rather than the framing every line carries — and the doc's example
+/// writes the same number under both. Plan item 3.5 answers the `version` command
+/// with [`PROTOCOL_VERSION`] under THIS name while the framing of the line writes
+/// that same constant under [`PROTOCOL_FIELD`], so the version the daemon tells the
+/// interface it speaks and the version of the line it tells it on are one value
+/// written from one constant, which the test of this module checks.
+pub const HELLO_VERSION_FIELD: &str = "version";
 
 /// The JSON type one parameter value has on the wire.
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -1149,4 +1178,136 @@ fn a_payload_field_the_framing_uses_is_the_typed_error_naming_it() {
     assert!(PROTOCOL_FIELD == "v");
     assert!(EVENT_FIELD == "event");
     assert!(COMMAND_FIELD == "cmd");
+}
+
+#[test]
+fn the_handshake_answer_carries_the_version_this_build_speaks_under_the_names_of_the_vocabulary() {
+    // Plan item 3.5 answers the `version` command of the command table with the
+    // `hello` event, and the two `test-example` lines of the "Handshake" section
+    // of `doc/architecture/core-protocol.md` are exactly that pair of lines. The
+    // names of the payload of that answer are owned by this module —
+    // [`HELLO_NONCE_FIELD`], [`HELLO_SESSION_FIELD`] and [`HELLO_VERSION_FIELD`] —
+    // so the claim that they are the names the doc writes into its example is
+    // checked HERE against the doc, and so is the claim that the version the daemon
+    // tells the interface it speaks under [`HELLO_VERSION_FIELD`] is ONE number with
+    // the version of the line it is told it on ([`PROTOCOL_FIELD`]) and with the
+    // version the doc's example carries. The modules [`proto::codec`] and
+    // [`proto::event`] are not the files of plan item 3.5 to touch, so this is where
+    // the claim that the two version names cannot drift is pinned rather than assumed.
+    let text = read_core_protocol_doc();
+    let (ids, examples) = doc_test_examples(&text);
+    let mut request = String::new();
+    let mut response = String::new();
+    let mut position = 0;
+    while position < ids.len() {
+        if ids[position].to_string() == "core-handshake-request" { request = examples[position].to_string(); }
+        if ids[position].to_string() == "core-handshake-response" { response = examples[position].to_string(); }
+        position = position + 1;
+    }
+    if request.len() == 0 || response.len() == 0 {
+        let read_ids = ids;
+        panic!("the test-examples of the handshake of doc/architecture/core-protocol.md were not both read (the ids found were {read_ids:?}), so the cross-check of the handshake pair has nothing to compare the payload names of this module with");
+    }
+    // The line the interface sends is a command of the table, and it reads back
+    // as the `version` command carrying the nonce this module already names as a
+    // parameter of that row (see [`command_rows`]) — the nonce plan item 3.5 has
+    // to echo back.
+    let sent = crate::codec::decode_line(&request);
+    if !sent.is_ok() {
+        let reason = crate::codec::error_text(&sent.unwrap_err());
+        panic!("the handshake request [{request}] of the doc does not decode as a command ({reason}), so the row of the command the doc's own example sends is missing from the table");
+    }
+    let nonce = request_nonce(&sent.unwrap());
+    if nonce.len() == 0 {
+        panic!("the handshake request [{request}] of the doc is not the `version` command carrying a `nonce`, so plan item 3.5 has no nonce to echo back");
+    }
+    // The fields the doc writes into its answer, besides the framing of the line
+    // ([`PROTOCOL_FIELD`] and [`EVENT_FIELD`], which [`object_fields`] skips), are
+    // exactly the three payload names this module owns.
+    let mut documented = object_fields(&response);
+    documented.sort();
+    let mut owned = [HELLO_NONCE_FIELD.to_string(), HELLO_SESSION_FIELD.to_string(), HELLO_VERSION_FIELD.to_string()].to_vec();
+    owned.sort();
+    if documented != owned {
+        let names = documented;
+        let held = owned;
+        panic!("the handshake answer [{response}] of the doc writes the fields {names:?}, while proto/src/commands.rs names the payload of a `hello` line {held:?}, so the answer plan item 3.5 writes and the line the interface is documented to read disagree on a field name");
+    }
+    let read_back = serde_json::from_str::<Value>(&response);
+    if !read_back.is_ok() {
+        panic!("the handshake answer [{response}] of the doc does not parse as one JSON object, so the version and the session it carries cannot be read for the cross-check");
+    }
+    let example = read_back.unwrap();
+    // The version the doc's example claims the daemon speaks, read as an integer
+    // (`0` when the line carries no integer version under that name, which is
+    // itself a disagreement the panic below reports).
+    let mut claimed = 0;
+    let mut session = String::new();
+    match example.get(HELLO_VERSION_FIELD) {
+        Some(held) => { claimed = held.as_i64().unwrap_or(0); }
+        None => { }
+    }
+    match example.get(HELLO_SESSION_FIELD) {
+        Some(held) => { session = held.as_str().map(|given| -> String { return given.to_string(); }).unwrap_or(String::new()); }
+        None => { }
+    }
+    if claimed != PROTOCOL_VERSION {
+        let doc_version = claimed;
+        let spoken = PROTOCOL_VERSION;
+        panic!("the handshake answer of the doc claims version {doc_version} under [{HELLO_VERSION_FIELD}] while proto/src/commands.rs speaks version {spoken}, so the handshake plan item 3.5 answers would not be the documented one");
+    }
+    if session.len() == 0 {
+        panic!("the handshake answer of the doc carries no text under [{HELLO_SESSION_FIELD}], so the session field plan item 3.5 has to answer with has nothing to be cross-checked with");
+    }
+    // The frame this build writes for that answer — the nonce of the request
+    // echoed back, the `session` of the doc's example, and THIS build's protocol
+    // version under the name of the vocabulary — is the doc's example line read as
+    // one JSON object. Key order is not compared: serde_json writes the keys of a
+    // frame lexicographically without the `preserve_order` feature, as
+    // `proto/src/codec.rs` documents for every frame, and re-parsing both sides
+    // sorts both of them the same way.
+    let named = crate::event::event_kind(&crate::event::Event::Hello(nonce.to_string(), session.to_string(), PROTOCOL_VERSION));
+    let message = crate::codec::Message::Outbound(crate::event::Event::Hello(nonce.to_string(), session.to_string(), PROTOCOL_VERSION));
+    let framed = crate::codec::encode_frame(&message);
+    if !framed.is_ok() {
+        let reason = crate::codec::error_text(&framed.unwrap_err());
+        panic!("the codec cannot write the handshake answer of plan item 3.5 ({reason}), so the payload of a `hello` line collides with the framing of a frame");
+    }
+    let frame = framed.unwrap();
+    let parsed = serde_json::from_str::<Value>(&frame);
+    if !parsed.is_ok() {
+        panic!("the frame [{frame}] the codec writes for the handshake answer does not parse as one JSON object, so the interface could not read the answer plan item 3.5 gives it");
+    }
+    let written = parsed.unwrap();
+    if written.to_string() != example.to_string() {
+        let got = written.to_string();
+        let expected = example.to_string();
+        panic!("the handshake answer this build writes ({got}) is not the handshake answer of the doc ({expected}) read as one JSON object, so the interface reads a different handshake than the documented one");
+    }
+    // The version of the payload and the version of the line are one number in
+    // that frame...
+    if written.get(PROTOCOL_FIELD) != written.get(HELLO_VERSION_FIELD) {
+        panic!("the frame [{frame}] the codec writes carries a different version under [{PROTOCOL_FIELD}] than under [{HELLO_VERSION_FIELD}], so the version of the line and the version of the answer disagree");
+    }
+    // ...and the frame reads back as the message it was written from, which is what
+    // lets the transport of plan item 3.6 compare the echoed nonce of the handshake
+    // against the line the interface received.
+    if crate::codec::decode_line(&frame).unwrap() != message {
+        let written_line = frame;
+        panic!("the handshake answer [{written_line}] this build writes does not read back as the event it was written from, so the nonce the interface was promised could not be checked against it");
+    }
+    assert!(named == "hello");
+    assert!(nonce == "6f2c1a48e0b7d9c3");
+    assert!(session == "core-1");
+}
+
+/// The nonce the `version` command of one decoded message of the doc carries,
+/// [`String::new`] when the message is not that command, which is the case the
+/// test above reports rather than this helper.
+#[cfg(test)]
+fn request_nonce(message: &crate::codec::Message) -> String {
+    match message {
+        crate::codec::Message::Inbound(crate::command::Command::Version(given)) => { return given.to_string(); }
+        _ => { return String::new(); }
+    }
 }
