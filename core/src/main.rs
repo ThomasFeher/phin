@@ -35,6 +35,8 @@
 
 use core::protocol::interpret;
 use core::protocol::writer::EventSink;
+use core::technical::transport;
+use core::technical::transport_cfg;
 use std::io::Write;
 
 /// stdin as the abstract command stream the interpreter reads.
@@ -160,9 +162,153 @@ fn exit_code(stop: interpret::Stop, sink_broken: bool) -> i32 {
     return 0;
 }
 
+/// The process's own argv as DATA, [`argv[0]`] FIRST (it is the executable
+/// PATH a caller of `transport::connect_or_spawn` needs as the spawn seam's
+/// executable — `std::process::self_exe_path` does NOT exist in this toolchain
+/// (E0425, a toolchain fact of this row), so the caller's own argv[0] IS the
+/// executable path; plan item 6.1's CLI is what wires that call, and the
+/// integration tests of 3.6 pass `CARGO_BIN_EXE_core` instead).
+///
+/// The pipe session of plan items 3.4/3.5 reads NONE of this: `--serve`
+/// SELECTS the daemon branch below and the default branch is byte-identical to
+/// what item 3.5 left, so its 158 lib + 4 bin tests are UNCHANGED.
+fn argv() -> Vec::<String> {
+    let mut collected = Vec::<String>::new();
+    for held in std::env::args() {
+        collected.push(held.to_string());
+    }
+    return collected;
+}
+
+/// The text of one [`transport_cfg::ConfigIssue`] (it carries its complaint as TYPED
+/// data WITHOUT a `Display`, like [`core::technical::fs_atomic::WriteError`] in the
+/// transport module): rendered here because THIS is where a user sees it.
+fn config_refusal_text(issue: &transport_cfg::ConfigIssue) -> String {
+    match issue {
+        transport_cfg::ConfigIssue::NotReadable(text) => { return format!("the configuration file could not be read: {text}", text = text); }
+        transport_cfg::ConfigIssue::NotTOML(text) => { return format!("the configuration file is not TOML: {text}", text = text); }
+        transport_cfg::ConfigIssue::WrongType(text) => { return format!("a configuration key holds the wrong type: {text}", text = text); }
+        transport_cfg::ConfigIssue::PortOutOfRange(value) => { return format!("the configured port {value} cannot be bound", value = value); }
+    }
+}
+
+/// One line of DAEMON diagnostics on stderr. The event stream itself stays
+/// free of non-protocol output (decision 20): a daemon STARTUP or LOCK failure
+/// is not an event — the doc gives the daemon no event for it — and
+/// `transport` carries every reason as typed data, which this is the one
+/// place allowed to render ("A daemon error is reported on stderr by
+/// `main.rs`", the transport module doc). A FAILURE OF THE DIAGNOSTIC ITSELF
+/// IS NOT REPORTED: stderr is the channel being complained about.
+fn report_stderr(text: String) {
+    match std::io::stderr().write_all(text.as_bytes()) {
+        Err(_) => { }
+        Ok(_) => {
+            match std::io::stderr().flush() {
+                Err(_) => { }
+                Ok(_) => { }
+            }
+        }
+    }
+}
+
+/// What removing the lock file on a daemon exit is worth to the USER:
+/// [`transport_cfg::Removal`]'s typed outcome; only a FAILURE needs a line, and
+/// the line is `data-files.md:143`'s promise breaking ("removed on exit"),
+/// WHICH is why the exit below is then NOT clean either.
+fn report_removal(removal: transport_cfg::Removal) -> bool {
+    match removal {
+        transport_cfg::Removal::Removed => { return true; }
+        transport_cfg::Removal::WasAbsent => { return true; }
+        transport_cfg::Removal::Failed(kind, text) => {
+            report_stderr(format!("the lock file of the exiting daemon could not be removed ({why}): {seen}", why = kind.to_string(), seen = text));
+            return false;
+        }
+    }
+}
+
+/// The daemon branch of `--serve`: bind the CONFIGURED address (flags first,
+/// then the configuration of `core-protocol.md:14` —
+/// [`transport::daemon_settings`] IS that precedence), write `state/core.lock`
+/// ([`transport::daemon_start`]), serve through [`transport::serve_daemon`]
+/// until the idle timeout or `shutdown`, and REMOVE the lock on EVERY exit
+/// path. Status: 0 for the two documented clean exits, 1 for a refused
+/// start-up (an occupied address is NAMED by the CONFIGURED ADDRESS,
+/// `architecture.md:250`), a broken listener, or a lock that stays behind.
+fn daemon_status(args: Vec::<String>) -> i32 {
+    match transport::daemon_settings(args) {
+        (None, issues) => {
+            for held in issues {
+                match held {
+                    transport::DaemonFlagIssue::NotANumber(flag, seen) => { report_stderr(format!("the daemon flag {name} needs an integer, saw [{value}]", name = flag, value = seen)); }
+                    transport::DaemonFlagIssue::PortOutOfRange(value) => { report_stderr(format!("the daemon port {value} cannot be bound")); }
+                    transport::DaemonFlagIssue::IdleTooSmall(value) => { report_stderr(format!("the daemon idle timeout {value} must be a POSITIVE number of seconds")); }
+                    transport::DaemonFlagIssue::ConfigRejected(rejected) => {
+                        for bad in rejected {
+                            report_stderr(config_refusal_text(&bad));
+                        }
+                    }
+                }
+            }
+            return 1;
+        }
+        (Some(settings), _) => {
+            let endpoint = transport_cfg::Endpoint { host: settings.host, port: settings.port };
+            match transport::daemon_start(&endpoint, &settings.data_dir) {
+                transport::DaemonStart::AddressTaken(address, message) => {
+                    report_stderr(format!("nothing listens at the configured address [{at}] and this daemon could not bind it either: {why}", at = address, why = message));
+                    return 1;
+                }
+                transport::DaemonStart::LockUnwritten(address, complaint) => {
+                    report_stderr(format!("the daemon could not write its lock file for the configured address [{at}]: {why}", at = address, why = complaint));
+                    return 1;
+                }
+                transport::DaemonStart::Ready(handle) => {
+                    let mut nothing_wired = interpret::wired_nowhere();
+                    let exit = transport::serve_daemon(&handle.listener, &settings.data_dir, settings.idle_seconds, &mut nothing_wired, handle.session);
+                    match exit {
+                        // The two DOCUMENTED clean exits; a lock left BEHIND
+                        // (`Removal::Failed`) breaks `data-files.md:143`
+                        // ("removed on exit") and is NOT clean.
+                        transport::DaemonExit::IdleExit(removal) => {
+                            if !report_removal(removal) {
+                                return 1;
+                            }
+                            return 0;
+                        }
+                        transport::DaemonExit::ShutdownExit(removal) => {
+                            if !report_removal(removal) {
+                                return 1;
+                            }
+                            return 0;
+                        }
+                        transport::DaemonExit::ListenerBroken(complaint, removal) => {
+                            report_stderr(format!("the listener of the daemon broke: {why}", why = complaint));
+                            if !report_removal(removal) {
+                                return 1;
+                            }
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Run the daemon: read the commands of one session from stdin, answer them on
-/// stdout, and stop when the stream says to.
+/// stdout, and stop when the stream says to — UNLESS `--serve` is in the
+/// argv, WHICH is the daemon mode of plan item 3.6 ([`daemon_status`]).
 fn main() {
+    let args = argv();
+    let mut serve_mode = false;
+    for held in args.to_vec() {
+        if held == transport::DAEMON_FLAG {
+            serve_mode = true;
+        }
+    }
+    if serve_mode {
+        std::process::exit(daemon_status(args));
+    }
     let mut input = StdinText { ended: false };
     let mut sink: LatchLines<std::io::Stdout> = LatchLines { out: std::io::stdout(), broken: false };
     let mut nothing_wired = interpret::wired_nowhere();

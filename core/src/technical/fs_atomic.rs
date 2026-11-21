@@ -167,11 +167,19 @@ pub fn write_atomic(path: &std::path::Path, content: &str) -> Result::<BackupOut
     }
 }
 
+/// The SCRATCH PARENT of THIS module: MODULE-PRIVATE, following the pattern the
+/// repo already uses for `test-scratch-transport`, `test-scratch-transport-cfg`
+/// and `test-scratch-integration`, so no test's cleanup can ever delete another
+/// module's scratch tree (the flake documented by the review of plan item 3.6b
+/// came from the SHARED `test-scratch` parent, which is GONE now).
+#[cfg(test)]
+const SCRATCH_PARENT: &str = "test-scratch-fs-atomic";
+
 /// The scratch directory of one test, below the test's working directory; the
 /// test removes it with [`remove_scratch`] before it finishes.
 #[cfg(test)]
 fn make_scratch(name: &str) -> std::path::PathBuf {
-    let scratch = std::path::PathBuf::from("test-scratch").join(name);
+    let scratch = std::path::PathBuf::from(SCRATCH_PARENT).join(name);
     match std::fs::create_dir_all(&scratch) {
         Err(reason) => { panic!("cannot create the scratch directory of a fs_atomic test: {reason}"); }
         Ok(_) => { }
@@ -214,12 +222,24 @@ fn remove_scratch(dir: std::path::PathBuf) {
             Ok(_) => { }
         }
     }
-    // The shared parent of all scratch directories: gone once the last test
-    // finished, still in use while others run, so a failure is ignored.
-    match std::fs::remove_dir(std::path::PathBuf::from("test-scratch")) {
+    // This module's OWN scratch parent (`SCRATCH_PARENT`): gone once the last
+    // fs_atomic test finished, still in use while others run, so a failure is
+    // ignored; no OTHER module shares it, so this can never drop their trees.
+    match std::fs::remove_dir(std::path::PathBuf::from(SCRATCH_PARENT)) {
         Err(_) => { }
         Ok(_) => { }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn scratch_parent_is_module_private() {
+    // WEAKER PIN: every fs_atomic scratch lives below THIS module's OWN parent
+    // prefix, never below a shared parent another module's cleanup might drop.
+    let scratch = make_scratch("module-private-parent");
+    assert!(scratch.starts_with(std::path::PathBuf::from(SCRATCH_PARENT)));
+    assert!(SCRATCH_PARENT.starts_with("test-scratch-fs-atomic"));
+    remove_scratch(scratch);
 }
 
 /// The bytes of `path`, or an empty `Vec` when it does not exist.
@@ -274,7 +294,7 @@ fn crash_after_the_temp_write_but_before_the_rename_leaves_the_original_intact()
     assert!(scratch_bytes(&target) == original.as_bytes());
     // No backup was taken and no temporary content leaked into the target.
     assert!(!scratch_exists(&backup_path(&target)));
-    remove_scratch(std::path::PathBuf::from("test-scratch").join("crash-before-rename"));
+    remove_scratch(std::path::PathBuf::from(SCRATCH_PARENT).join("crash-before-rename"));
 }
 
 #[test]
@@ -297,7 +317,7 @@ fn the_bak_holds_the_exact_previous_content_after_a_successful_write() {
     assert!(second == BackupOutcome::PreviousKept);
     assert!(scratch_bytes(&target) == "newer text\n".as_bytes());
     assert!(scratch_bytes(&backup_path(&target)) == "new text\n".as_bytes());
-    remove_scratch(std::path::PathBuf::from("test-scratch").join("bak-content"));
+    remove_scratch(std::path::PathBuf::from(SCRATCH_PARENT).join("bak-content"));
 }
 
 #[test]
@@ -312,7 +332,7 @@ fn write_creates_a_missing_target_directory_and_keeps_nothing_to_back_up() {
     assert!(scratch_bytes(&target) == "bank_a.pdf;0\n".as_bytes());
     // A target that never existed has nothing to keep: no `.bak` is created.
     assert!(!scratch_exists(&backup_path(&target)));
-    remove_scratch(std::path::PathBuf::from("test-scratch").join("missing-dir"));
+    remove_scratch(std::path::PathBuf::from(SCRATCH_PARENT).join("missing-dir"));
 }
 
 #[test]
@@ -340,7 +360,7 @@ fn an_empty_target_loses_nothing_and_never_touches_an_existing_bak() {
     assert!(emptied == BackupOutcome::NothingToKeep);
     assert!(scratch_bytes(&backup) == "finance;Finances\n".as_bytes());
     assert!(scratch_bytes(&target) == "finance;Finances;renamed;again\n".as_bytes());
-    remove_scratch(std::path::PathBuf::from("test-scratch").join("empty-target"));
+    remove_scratch(std::path::PathBuf::from(SCRATCH_PARENT).join("empty-target"));
 }
 
 #[test]
@@ -380,7 +400,7 @@ fn a_failing_step_is_a_typed_error_and_the_old_file_survives() {
     }
     assert!(scratch_bytes(&scratch.join("blocked-by-file")) == "not a directory\n".as_bytes());
     assert!(!scratch_exists(&blocked));
-    remove_scratch(std::path::PathBuf::from("test-scratch").join("typed-errors"));
+    remove_scratch(std::path::PathBuf::from(SCRATCH_PARENT).join("typed-errors"));
 }
 
 #[test]
@@ -409,5 +429,5 @@ fn a_rename_that_cannot_happen_keeps_the_old_content_and_reports_it() {
     }
     assert!(scratch_bytes(&target) == "old content\n".as_bytes());
     assert!(scratch_bytes(&backup_path(&target)) == "old content\n".as_bytes());
-    remove_scratch(std::path::PathBuf::from("test-scratch").join("rename-fails"));
+    remove_scratch(std::path::PathBuf::from(SCRATCH_PARENT).join("rename-fails"));
 }

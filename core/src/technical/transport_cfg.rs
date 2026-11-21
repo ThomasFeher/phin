@@ -25,7 +25,12 @@
 //! * **Lock file** (`core-protocol.md:18-28`, `data-files.md:143`):
 //!   `state/core.lock` inside the data directory, holding the address the
 //!   daemon listens on plus its nonce, WRITTEN at daemon start-up and
-//!   REMOVED on exit. The TEXT itself is encoded and parsed by
+//!   REMOVED on exit. Reading it answers with the typed [`LockReading`]:
+//!   ABSENT (only `NotFound` reads as absent), UNREADABLE (the file EXISTS
+//!   but `std::io` refused it — NEVER folded into ABSENT: `architecture.md:247`
+//!   forbids the SECOND daemon an absent reading would start), MALFORMED
+//!   (`proto` refused the text; the partial record survives) and READ.
+//!   The TEXT itself is encoded and parsed by
 //!   `proto/src/handshake.rs` (`render_lock`/`parse_lock`), which is
 //!   `proto`'s half of this row; every WRITE of the file goes through
 //!   plan 2.5's `core::technical::fs_atomic::write_atomic`.
@@ -113,7 +118,7 @@ pub const PORT_TABLE_KEY: &str = "port";
 /// The SHAPE rule itself lives in `proto::handshake::is_wellformed_nonce` (it
 /// is pinned there to the doc's example); this constant is the SAME LENGTH
 /// used when the daemon MINTS one, and the test
-/// `the_minted_nonce_is_the_shape_proto_validates` pins the two together.
+/// `the_minted_nonce_has_the_shape_proto_validates` pins the two together.
 pub const NONCE_HEX_CHARS: usize = 16;
 
 /// The `state/core.lock` text of `core-protocol.md:18-28` as one address string
@@ -350,7 +355,19 @@ pub fn endpoint_from_config(data_dir: &std::path::Path) -> (Option::<Endpoint>, 
                                                         None => { }
                                                     }
                                                     for issue in &parsed_address.2 {
-                                                        issues.push(ConfigIssue::WrongType(endpoint_complaint(issue)));
+                                                        match issue {
+                                                            // The purpose-built `ConfigIssue::PortOutOfRange`
+                                                            // carries the PORT itself and is what
+                                                            // `core/src/main.rs` already renders
+                                                            // (finding of the review of plan item 3.6b:
+                                                            // mapping it to `WrongType` bypassed
+                                                            // that rendering); the OTHER endpoint
+                                                            // complaints keep the typed `WrongType`
+            // naming the KEY, which is the honest reading of a TEXT key
+            // holding a bad port.
+                                                            EndpointIssue::PortOutOfRange(value) => { issues.push(ConfigIssue::PortOutOfRange(*value)); }
+                                                            _ => { issues.push(ConfigIssue::WrongType(endpoint_complaint(issue))); }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -375,8 +392,10 @@ pub fn endpoint_from_config(data_dir: &std::path::Path) -> (Option::<Endpoint>, 
 }
 
 /// The text of an endpoint complaint, for a complaint about the configuration
-/// key that produced it.
-fn endpoint_complaint(issue: &EndpointIssue) -> String {
+/// key that produced it, OR — since sub-row 3.6c WIRES `parse_endpoint` INTO
+/// THE CONNECTION GATE — about a hand-built `Endpoint` the gate refuses BEFORE
+/// ANY SOCKET IS OPENED (why this is `pub`).
+pub fn endpoint_complaint(issue: &EndpointIssue) -> String {
     match issue {
         EndpointIssue::EmptyHost => { return "core.address has an empty host".to_string(); }
         EndpointIssue::PortNotANumber(text) => { return format!("core.address has a port that is not a number: [{text}]"); }
@@ -393,15 +412,63 @@ pub fn lock_path(data_dir: &std::path::Path) -> std::path::PathBuf {
     return data_dir.join(STATE_DIR_NAME).join(LOCK_FILE_NAME).to_path_buf();
 }
 
-/// Read the lock file of a data directory.
-///
-/// [`None`] is "no lock file", which `architecture.md:247` reads as "start a
-/// daemon"; the issues are the reasons, kept for a report and never fatal — a
-/// lock this build cannot read is overwritten by the daemon this flow starts.
-pub fn read_lock(data_dir: &std::path::Path) -> (Option::<LockRecord>, Vec::<LockIssue>) {
+/// What reading the lock file came down to — THREE DISTINCT readings the
+/// OLD tuple return merged into one `(None, [])`, which contradicted this
+/// function's own doc and made an EXISTING-but-UNREADABLE lock read as
+/// ABSENT, i.e. "start a SECOND daemon", which `architecture.md:247`
+/// forbids ("If a lock file exists, the interface connects and sends the
+/// handshake"; the review of plan item 3.6b recorded exactly this). The
+/// CALLER (`transport.rs`'s `connect_or_spawn`) decides from the difference:
+/// ABSENT may spawn, UNREADABLE must NOT (the refusal is typed there and
+/// names the CONFIGURED address), and MALFORMED falls to the SPAWN path of
+/// a STALE lock (clause (c): a lock whose text gives no usable nonce hand-
+/// shaked nothing, the handshake FAILED, and the daemon this flow starts
+/// OVERWRITES the file).
+#[derive(Debug, Eq, PartialEq)]
+pub enum LockReading {
+    /// The file was read and `proto`'s parser accepted it WHOLE: the record
+    //  (address + wellformed nonce) is exactly what `core-protocol.md:26`
+    //  describes.
+    Read(LockRecord),
+    /// There is NO `state/core.lock` file (`std::io`'s `NotFound`) — the
+    //  only reading `architecture.md:247` answers with "start a daemon".
+    Absent,
+    /// The file EXISTS but this build could not READ it (permissions, the
+    //  path going through a NON-DIRECTORY, the file being a DIRECTORY);
+    //  the texts are the `std::io` kind and the OS's OWN message. The
+    //  daemon that wrote it is NOT known to be gone — process-id liveness
+    //  is never the test (`architecture.md:247`) and this module never
+    //  inspects a pid — so NOTHING here may start a SECOND daemon.
+    Unreadable(std::io::ErrorKind, String),
+    /// The text was READ but `proto`'s parser refused it (a missing or
+    //  malformed VALUE, an unknown key, a repeated key): the issues are
+    //  `handshake.rs:38`'s complaints, and the optional partial record is
+    //  what the GOOD lines carried — `transport.rs` handshakes through it
+    //  when it holds a wellformed nonce, and otherwise takes the SPAWN
+    //  path of a stale lock.
+    Malformed(Option::<LockRecord>, Vec::<LockIssue>)
+}
+
+pub fn read_lock(data_dir: &std::path::Path) -> LockReading {
     match std::fs::read_to_string(&lock_path(data_dir)) {
-        Err(_) => { return (None, Vec::<LockIssue>::new()); }
-        Ok(text) => { return parse_lock(&text); }
+        Err(reason) => {
+            if reason.kind() == std::io::ErrorKind::NotFound {
+                return LockReading::Absent;
+            }
+            let message = format!("{reason}", reason = reason);
+            return LockReading::Unreadable(reason.kind(), message);
+        }
+        Ok(text) => {
+            match parse_lock(&text) {
+                (None, issues) => { return LockReading::Malformed(None, issues); }
+                (Some(record), issues) => {
+                    if issues.len() == 0 {
+                        return LockReading::Read(record);
+                    }
+                    return LockReading::Malformed(Some(record), issues);
+                }
+            }
+        }
     }
 }
 
@@ -445,7 +512,7 @@ pub fn remove_lock(data_dir: &std::path::Path) -> Removal {
 /// decision 33, which dropped `proto`'s digest-to-nonce route for implying an
 /// undocumented interface -> child channel).
 ///
-/// The value is the first [`nonce_length`] lowercase hex characters of this
+/// The value is the first [`NONCE_HEX_CHARS`] lowercase hex characters of this
 /// package's SHA-256 reading of the seed, i.e. the same reading `technical/id.rs`
 /// uses for transaction ids; the 16-character SHAPE rule itself stays in
 /// `proto::handshake::is_wellformed_nonce`, where the doc example pins it.
@@ -466,18 +533,21 @@ pub fn mint_nonce(seed: &str) -> String {
 // Tests
 // ============================================================================
 
-/// A CWD-relative scratch directory under `test-scratch/<name>`, REMOVED
-/// FIRST if left behind by a FAILED run, CREATED for this run, and REMOVED
-/// again at the end by [`cleanup_scratch`] — which also drops the shared
-/// `test-scratch` parent once it has gone empty (the pattern of
-/// `core/src/technical/view.rs:186-196` and of `fs_atomic.rs`), so after a
-/// test run `find . -name 'test-scratch*'` reads EMPTY. Every test of this
-/// module uses a name of its OWN — `cargo test` runs the tests of one binary
-/// on PARALLEL threads, so DISTINCT directories (and DISTINCT FREE PORTS,
-/// see [`free_port`]) make the tests unable to collide.
+/// A CWD-relative scratch directory under `test-scratch-transport-cfg/<name>`,
+/// REMOVED FIRST if left behind by a FAILED run, CREATED for this run WITH A
+/// BOUNDED RETRY (the race documented by the review of plan item 3.6b: a
+/// SIBLING test's cleanup removes the shared scratch PARENT while this test is
+/// INSIDE `create_dir_all`; AT MOST FIVE creation attempts bound the loop), and
+/// REMOVED again at the end by [`cleanup_scratch`] — which also drops the
+/// scratch parent of THIS MODULE ONLY (`test-scratch-transport-cfg`, NEVER the
+/// the `test-scratch-fs-atomic`/`test-scratch-view` parents: this module owns its
+/// OWN scratch parent), so after a test run `find . -name 'test-scratch*'`
+/// reads EMPTY. Every test of this module uses a name of its OWN — `cargo test`
+/// runs the tests of one binary on PARALLEL threads, so DISTINCT directories
+/// (and DISTINCT FREE PORTS, see [`free_port`]) make the tests unable to collide.
 #[cfg(test)]
 fn scratch_dir(name: String) -> std::path::PathBuf {
-    let dir = std::path::PathBuf::from("test-scratch").join(name).to_path_buf();
+    let dir = std::path::PathBuf::from("test-scratch-transport-cfg").join(name).to_path_buf();
     match std::fs::exists(&dir) {
         Ok(true) => {
             match std::fs::remove_dir_all(&dir) {
@@ -488,9 +558,19 @@ fn scratch_dir(name: String) -> std::path::PathBuf {
         Ok(false) => { }
         Err(_) => { }
     }
-    match std::fs::create_dir_all(&dir) {
-        Err(_) => { }
-        Ok(_) => { }
+    // BOUNDED RETRY of the creation: the race documented by the review of
+    // plan item 3.6b — a SIBLING test's cleanup removes the shared scratch
+    // PARENT while this test is INSIDE `create_dir_all`, so the parent vanishes
+    // mid-call and the CHILD creation dies with ENOENT. `create_dir_all`
+    // RECREATES the parent, so one more ATTEMPT SUCCEEDS; FIVE attempts
+    // BOUND the loop so a genuine failure cannot spin.
+    let mut tries: i64 = 0;
+    while tries < 5 {
+        match std::fs::create_dir_all(&dir) {
+            Ok(_) => { break; }
+            Err(_) => { }
+        }
+        tries += 1;
     }
     return dir;
 }
@@ -503,7 +583,7 @@ fn cleanup_scratch(dir: &std::path::PathBuf) {
     }
     // The EMPTY parent goes too, best effort: a sibling test still RUNNING
     // keeps the directory non-empty and this removal is simply REFUSED.
-    match std::fs::remove_dir(std::path::PathBuf::from("test-scratch")) {
+    match std::fs::remove_dir(std::path::PathBuf::from("test-scratch-transport-cfg")) {
         Err(_) => { }
         Ok(_) => { }
     }
@@ -729,12 +809,11 @@ fn the_lock_file_lands_at_state_core_lock_in_the_data_dir_and_round_trips_throug
     }
     // And [`read_lock`] hands the SAME record back:
     match read_lock(&dir) {
-        (Some(held), issues) => {
-            assert!(issues.len() == 0);
+        LockReading::Read(held) => {
             assert!(held.address == record.address);
             assert!(held.nonce == record.nonce);
         }
-        (None, _) => { assert!(false); }
+        _ => { assert!(false); }
     }
     // The SECOND write of a fresh nonce keeps the PREVIOUS text as the
     // `.bak` sibling and the file NOW holds the NEW text:
@@ -744,8 +823,8 @@ fn the_lock_file_lands_at_state_core_lock_in_the_data_dir_and_round_trips_throug
         Ok(outcome) => { assert!(outcome == fs_atomic::BackupOutcome::PreviousKept); }
     }
     match read_lock(&dir) {
-        (Some(now), _) => { assert!(now.nonce == fresh.nonce); }
-        (None, _) => { assert!(false); }
+        LockReading::Read(now) => { assert!(now.nonce == fresh.nonce); }
+        _ => { assert!(false); }
     }
     let bak = std::path::PathBuf::from(lock_path(&dir).display().to_string() + ".bak");
     match std::fs::exists(&bak) {
@@ -800,6 +879,203 @@ fn lock_removal_reports_absent_then_present_then_failed() {
             assert!(kind == std::io::ErrorKind::NotADirectory);
             assert!(text.len() > 0);
         }
+        _ => { assert!(false); }
+    }
+    cleanup_scratch(&dir);
+}
+
+
+#[test]
+fn a_core_table_configuration_names_the_same_endpoint_as_the_dotted_key_and_a_non_default_host_is_applied() {
+    // TWO FINDINGS OF THE REVIEW OF PLAN ITEM 3.6b PINNED AT ONCE:
+    // * the `[core]` TABLE spelling of the configuration had NO test at
+    //   all (`grep -rn '"\[core\]' core/` was EMPTY then) although the
+    //   sibling gate must accept whatever spelling the USER's config file
+    //   uses — `basic_toml` folds BOTH the DOTTED `core.address` of
+    //   `data-files.md:149` AND the `[core]` TABLE with `address`/`port`
+    //   INTO the SAME nested table, and this pins ONE lookup path serves
+    //   BOTH spellings, TABLE + `port` override included;
+    // * the configured HOST was UNPINNED: every config test of 3.6b wrote
+    //   `127.0.0.1`, EQUAL to the DEFAULT, so the mutant "discard the
+    //   parsed host, ALWAYS DEFAULT_ADDRESS" SURVIVED all 166 tests. The
+    //   HOST here is `localhost` (which resolves to the loopback address
+    //   the FRAMING of `core-protocol.md:12` demands WHEN this endpoint is
+    //   later bound, but NOTHING binds it in this test — the endpoint's
+    //   host text IS the assertion), and the DOTTED spelling asserts the
+    //   host too, so a dropped host now fails HERE.
+    let dir = scratch_dir("a_core_table_configuration_names_the_same_endpoint_as_the_dotted_key_and_a_non_default_host_is_APPLIED".to_string());
+    let port = free_port(40121);
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), format!("[core]\naddress = \"localhost:{at}\"\n", at = port.to_string())) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match endpoint_from_config(&dir) {
+        (Some(endpoint), issues) => {
+            assert!(issues.len() == 0);
+            assert!(endpoint.host == "localhost".to_string());
+            assert!(endpoint.port == port);
+        }
+        (None, issues) => {
+            for held in issues {
+                match held {
+                    ConfigIssue::NotTOML(text) => { assert!(text.len() > 0); }
+                    _ => { }
+                }
+            }
+            assert!(false);
+        }
+    }
+    // THE TABLE + explicit `port` OVERRIDE (the recorded precedence):
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), format!("[core]\naddress = \"localhost:{at}\"\nport = {other}\n", at = port.to_string(), other = (port + 1).to_string())) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match endpoint_from_config(&dir) {
+        (Some(endpoint), issues) => {
+            assert!(issues.len() == 0);
+            assert!(endpoint.port == port + 1);
+            assert!(endpoint.host == "localhost".to_string());
+        }
+        (None, _) => { assert!(false); }
+    }
+    // THE DOTTED spelling, NON-DEFAULT HOST too — SAME nested table,
+    // SAME result, which is what "ONE lookup path serves both spellings"
+    // means observable:
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), format!("core.address = \"localhost:{at}\"\n", at = port.to_string())) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match endpoint_from_config(&dir) {
+        (Some(endpoint), issues) => {
+            assert!(issues.len() == 0);
+            assert!(endpoint.host == "localhost".to_string());
+            assert!(endpoint.port == port);
+        }
+        (None, _) => { assert!(false); }
+    }
+    cleanup_scratch(&dir);
+}
+
+#[test]
+fn an_unbindable_configuration_port_is_the_typed_port_issue_carrying_the_port_not_a_wrong_type() {
+    // THE FINDING OF THE REVIEW OF PLAN ITEM 3.6b: port-RANGE refusals were
+    // mapped to `ConfigIssue::WrongType`, BYPASSING the purpose-built
+    // `ConfigIssue::PortOutOfRange(i64)` variant that `core/src/main.rs`
+    // ALREADY renders ("the configured port {value} cannot be bound").
+    // BOTH spellings of an unbindable port — the port INSIDE `core.address`
+    // and the KEY `core.port` — come back as `PortOutOfRange` carrying
+    // THE PORT ITSELF; the wrong-TYPE reading keeps naming the KEY
+    // (asserted below on the OTHER edge, a non-numeric port text).
+    let dir = scratch_dir("an_unbindable_configuration_port_is_the_typed_port_issue_carrying_the_port_not_a_wrong_type".to_string());
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), "core.address = \"127.0.0.1:70000\"\n".to_string()) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match endpoint_from_config(&dir) {
+        (Some(_), _) => { assert!(false); }
+        (None, issues) => {
+            assert!(issues.len() == 1);
+            match &issues[0] {
+                ConfigIssue::PortOutOfRange(value) => { assert!(*value == 70_000); }
+                _ => { assert!(false); }
+            }
+        }
+    }
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), "core.port = 99999\n".to_string()) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match endpoint_from_config(&dir) {
+        (Some(_), _) => { assert!(false); }
+        (None, issues) => {
+            assert!(issues.len() == 1);
+            match &issues[0] {
+                ConfigIssue::PortOutOfRange(value) => { assert!(*value == 99_999); }
+                _ => { assert!(false); }
+            }
+        }
+    }
+    cleanup_scratch(&dir);
+}
+
+#[test]
+fn the_lock_reading_is_typed_absent_unreadable_or_malformed_and_never_a_bare_none() {
+    // THE FINDING OF THE REVIEW OF PLAN ITEM 3.6b: `read_lock` SWALLOWED
+    // EVERY read failure into `(None, [])`, so an EXISTING-but-UNREADABLE
+    // lock read as ABSENT — and per `architecture.md:247` ABSENT means
+    // "start a daemon", which the doc FORBIDS while a lock EXISTS ("If a
+    // lock file exists, the interface connects and sends the handshake").
+    // The THREE readings are DISTINCT here: a FRESH dir is [`LockReading.Absent`]
+    // (ONLY `NotFound` reads that way); a `core.lock` that is a DIRECTORY
+    // (`std::io`'s `IsADirectory`, the file EXISTS) is
+    // [`LockReading.Unreadable`] carrying the kind AND the OS's OWN message
+    // — NEVER Absent; readable-but-REFUSED text is
+    // [`LockReading.Malformed`], and a refusal that still carried the
+    // NONCE keeps the PARTIAL record (the sibling gate handshakes through
+    // it), while a missing value holds NO record at all.
+    let dir = scratch_dir("the_lock_reading_is_typed_absent_unreadable_or_malformed_and_never_a_bare_none".to_string());
+    match read_lock(&dir) {
+        LockReading::Absent => { }
+        _ => { assert!(false); }
+    }
+    // The file EXISTS and CANNOT BE READ: `state/core.lock` as a DIRECTORY.
+    match std::fs::create_dir(&dir.join(STATE_DIR_NAME.to_string())) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match std::fs::create_dir(&dir.join(STATE_DIR_NAME.to_string()).join(LOCK_FILE_NAME.to_string())) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match read_lock(&dir) {
+        LockReading::Unreadable(kind, text) => {
+            assert!(kind == std::io::ErrorKind::IsADirectory);
+            assert!(text.len() > 0);
+        }
+        LockReading::Absent => {
+            // THE EXACT BUG the finding recorded: the UNREADABLE lock read
+            // as ABSENT. It must not happen NOW.
+            assert!(false);
+        }
+        _ => { assert!(false); }
+    }
+    // GONE again for the MALFORMED rounds:
+    match std::fs::remove_dir(&dir.join(STATE_DIR_NAME.to_string()).join(LOCK_FILE_NAME.to_string())) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    // A readable lock with NO nonce VALUE: refused, NO record.
+    match std::fs::write(&dir.join(STATE_DIR_NAME.to_string()).join(LOCK_FILE_NAME.to_string()), "address=127.0.0.1:47623\n".to_string()) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match read_lock(&dir) {
+        LockReading::Malformed(partial, issues) => {
+            assert!(issues.len() > 0);
+            match partial {
+                Some(_) => { assert!(false); }
+                None => { }
+            }
+        }
+        LockReading::Read(_) => { assert!(false); }
+        _ => { assert!(false); }
+    }
+    // A readable lock whose NONCE is fine but which carries an UNKNOWN KEY:
+    // REFUSED WITH A PARTIAL RECORD — the sibling gate HANDSHAKES through
+    // that nonce (`architecture.md:247`: a lock EXISTS, so CONNECT).
+    match std::fs::write(&dir.join(STATE_DIR_NAME.to_string()).join(LOCK_FILE_NAME.to_string()), "address=127.0.0.1:47623\nnonce=6f2c1a48e0b7d9c3\nghost=1\n".to_string()) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    match read_lock(&dir) {
+        LockReading::Malformed(partial, issues) => {
+            assert!(issues.len() > 0);
+            match partial {
+                Some(held) => { assert!(held.nonce == "6f2c1a48e0b7d9c3".to_string()); }
+                None => { assert!(false); }
+            }
+        }
+        LockReading::Read(_) => { assert!(false); }
         _ => { assert!(false); }
     }
     cleanup_scratch(&dir);

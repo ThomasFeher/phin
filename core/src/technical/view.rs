@@ -180,11 +180,19 @@ const ANNOTATIONS_TEXT: &str = "# columns: id;ref;text;items;source;confidence\n
 #[cfg(test)]
 const RULES_TEXT: &str = "REWE MARKT -> food:supermarket\n";
 
-/// A scratch store below `test-scratch/view-<name>`; the test removes it with
+/// The SCRATCH PARENT of THIS module: MODULE-PRIVATE, following the pattern the
+/// repo already uses for `test-scratch-transport`, `test-scratch-transport-cfg`
+/// and `test-scratch-integration`, so no test's cleanup can ever delete another
+/// module's scratch tree (the flake documented by the review of plan item 3.6b
+/// came from the SHARED `test-scratch` parent, which is GONE now).
+#[cfg(test)]
+const SCRATCH_PARENT: &str = "test-scratch-view";
+
+/// A scratch store below `test-scratch-view/<name>`; the test removes it with
 /// [`remove_scratch`] before it finishes.
 #[cfg(test)]
 fn make_store(name: &str) -> std::path::PathBuf {
-    let store = std::path::PathBuf::from("test-scratch").join(name);
+    let store = std::path::PathBuf::from(SCRATCH_PARENT).join(name);
     match std::fs::create_dir_all(&store) {
         Err(reason) => { panic!("cannot create the scratch store of a view test: {reason}"); }
         Ok(_) => { }
@@ -213,8 +221,9 @@ fn write_fixture(store: &std::path::PathBuf, name: &str, text: &str) {
 }
 
 /// Remove the scratch store: its fixture files, its `rules/` directory, the
-/// store directory, and the shared `test-scratch` parent once the last test
-/// finished (still in use while other view tests run, so a failure is ignored).
+/// store directory, and this module's OWN parent (`SCRATCH_PARENT`) once the
+/// last view test finished (still in use while other view tests run, so a
+/// failure is ignored; no OTHER module shares that parent).
 #[cfg(test)]
 fn remove_scratch(store: std::path::PathBuf) {
     for name in ["transactions.csv", "overrides.csv", "annotations.csv", "rules/10-built-in.rules", "rules/50-user.rules"] {
@@ -222,7 +231,18 @@ fn remove_scratch(store: std::path::PathBuf) {
     }
     match std::fs::remove_dir(&store.join("rules")) { Err(_) => { } Ok(_) => { } }
     match std::fs::remove_dir(&store) { Err(_) => { } Ok(_) => { } }
-    match std::fs::remove_dir(std::path::PathBuf::from("test-scratch")) { Err(_) => { } Ok(_) => { } }
+    match std::fs::remove_dir(std::path::PathBuf::from(SCRATCH_PARENT)) { Err(_) => { } Ok(_) => { } }
+}
+
+#[cfg(test)]
+#[test]
+fn store_parent_is_module_private() {
+    // WEAKER PIN: every view scratch store lives below THIS module's OWN parent
+    // prefix, never below a shared parent another module's cleanup might drop.
+    let store = make_store("module-private-parent");
+    assert!(store.starts_with(std::path::PathBuf::from(SCRATCH_PARENT)));
+    assert!(SCRATCH_PARENT.starts_with("test-scratch-view"));
+    remove_scratch(store);
 }
 
 #[cfg(test)]

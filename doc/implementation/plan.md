@@ -179,7 +179,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       EOF → clean exit. Est. 130 LOC.
 - [x] **3.5 `ping`, `version`, `quit` commands** — Files: as above. Depends: 3.4.
       Tests: round-trip ping/pong; version matches `proto` constant. Est. 40 LOC.
-- [ ] **3.6 Transport: connect-or-spawn** — Files: `core/src/technical/
+- [x] **3.6 Transport: connect-or-spawn — Files: `core/src/technical/
       transport.rs`, `proto/src/handshake.rs`. Bind `127.0.0.1:port` (from
       config, default `47623`), write `state/core.lock` (address + nonce),
       handshake (`version` + nonce), remove lock on exit, idle timeout shutdown.

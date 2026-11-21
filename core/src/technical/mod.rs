@@ -11,6 +11,7 @@ pub mod id;
 pub mod state;
 pub mod store_transactions;
 pub mod store_sidefiles;
+pub mod transport;
 pub mod transport_cfg;
 pub mod view;
 
