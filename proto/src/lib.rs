@@ -22,6 +22,7 @@ pub mod codec;
 pub mod command;
 pub mod commands;
 pub mod event;
+pub mod handshake;
 
 #[test]
 fn proto_package_compiles() {}

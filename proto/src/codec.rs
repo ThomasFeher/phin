@@ -344,15 +344,19 @@ pub fn feed(framing: &mut Framing, chunk: &str) -> Vec::<String> {
 // Tests
 // ============================================================================
 
-/// The text of `doc/architecture/core-protocol.md`, read AT TEST TIME.
+/// The text of `doc/architecture/core-protocol.md`, read AT TEST TIME — the
+/// ONE such reader in `proto` (reviewer finding 5 on plan item 3.6 forbade a
+/// third copy of this body).
 ///
 /// The interface doc is the source of truth, so a codec test that hard-coded
 /// an example could stay green while the doc and the code disagree. The path
 /// is resolved from the `proto` package directory (where `cargo test` runs
 /// the test binary, hence `../doc/…`) and from the workspace root
 /// (`doc/…`), whichever of the two the binary happens to be started from.
+/// PUBLIC within the package (test builds only): `proto/src/commands.rs` and
+/// `proto/src/handshake.rs` call this instead of keeping their own copy.
 #[cfg(test)]
-fn read_core_protocol_doc() -> String {
+pub fn read_core_protocol_doc() -> String {
     match std::fs::read_to_string("doc/architecture/core-protocol.md") {
         Ok(text) => { return text; }
         Err(_) => {
@@ -364,9 +368,11 @@ fn read_core_protocol_doc() -> String {
     }
 }
 
-/// The id of a `<!-- test-example id=<id> -->` marker line.
+/// The id of a `<!-- test-example id=<id> -->` marker line. PUBLIC within the
+/// package (test builds only) so `proto/src/commands.rs` and `proto/src/handshake.rs`
+/// can reuse this module's reading of the doc instead of copying it.
 #[cfg(test)]
-fn marker_id(line: &str) -> String {
+pub fn marker_id(line: &str) -> String {
     let mut id = String::new();
     let mut reading = false;
     for character in line.chars() {
@@ -388,9 +394,10 @@ fn marker_id(line: &str) -> String {
 ///
 /// A marker comment is followed by its example in a `json fence, so the scan
 /// keeps the id of the last marker seen until the fenced line is reached; one
-/// example per marker, and no example without a marker.
+/// example per marker, and no example without a marker. PUBLIC within the package
+/// (test builds only) for the same reason as [`marker_id`].
 #[cfg(test)]
-fn doc_examples(text: &str) -> (Vec::<String>, Vec::<String>) {
+pub fn doc_examples(text: &str) -> (Vec::<String>, Vec::<String>) {
     let mut ids = Vec::<String>::new();
     let mut examples = Vec::<String>::new();
     let (lines, _tail) = split_lines(text);
@@ -416,6 +423,43 @@ fn doc_examples(text: &str) -> (Vec::<String>, Vec::<String>) {
         }
     }
     return (ids, examples);
+}
+
+/// The lines of the fenced block that follows the FIRST doc line containing
+/// `marker`.
+///
+/// `doc_examples` above only reaches blocks a `<!-- test-example id=… -->`
+/// marker introduces, and the fenced `text` block fixing the format of
+/// `state/core.lock` (`doc/architecture/core-protocol.md`, "Lock file and
+/// discovery") carries no marker, so the tests of `proto/src/handshake.rs` that
+/// pin the lock format need this reading of the doc; it lives HERE because
+/// `codec.rs` owns the doc scans of the package (reviewer finding 5 on plan item
+/// 3.6: no second doc-reading body elsewhere).
+#[cfg(test)]
+pub fn fenced_block_after(text: &str, marker: &str) -> Vec::<String> {
+    let (lines, _tail) = split_lines(text);
+    let mut block = Vec::<String>::new();
+    let mut seen_marker = false;
+    let mut inside_fence = false;
+    for line in lines {
+        if !seen_marker {
+            if line.contains(marker) {
+                seen_marker = true;
+            }
+            continue;
+        }
+        if line.starts_with("```") {
+            if inside_fence {
+                return block;
+            }
+            inside_fence = true;
+            continue;
+        }
+        if inside_fence {
+            block.push(line.to_string());
+        }
+    }
+    return block;
 }
 
 /// The frame `frame` written for the message `written` must be exactly one

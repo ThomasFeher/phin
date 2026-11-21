@@ -64,6 +64,13 @@ use serde_json::Value;
 
 use crate::codec::CodecError;
 
+// The ONE doc reader of `proto` lives in `proto/src/codec.rs` (reviewer finding
+// 5 on plan item 3.6: a third copy of this body was forbidden), so the tests of
+// this module read the interface doc through it instead of re-keeping the path
+// resolution below.
+#[cfg(test)]
+use crate::codec::read_core_protocol_doc;
+
 /// The protocol version this build of `proto` writes and the highest version
 /// it accepts on a line ("Versioning": a line whose `v` is higher than this
 /// build supports is rejected, an absent `v` means this version, and the
@@ -434,27 +441,6 @@ fn value_matches(kind: ValueKind, held: &Value) -> bool {
 // ============================================================================
 // Tests
 // ============================================================================
-
-/// The text of `doc/architecture/core-protocol.md`, read AT TEST TIME.
-///
-/// The interface doc is the source of the command table, so a test that
-/// hard-coded the names could stay green while the doc and the table disagree.
-/// The path is resolved from the `proto` package directory (where the test
-/// binary runs, hence `../doc/…`) and from the workspace root (`doc/…`),
-/// whichever of the two the binary happens to be started from (as in
-/// `proto/src/codec.rs`).
-#[cfg(test)]
-fn read_core_protocol_doc() -> String {
-    match std::fs::read_to_string("doc/architecture/core-protocol.md") {
-        Ok(text) => { return text; }
-        Err(_) => {
-            match std::fs::read_to_string("../doc/architecture/core-protocol.md") {
-                Ok(text) => { return text; }
-                Err(reason) => { panic!("cannot open doc/architecture/core-protocol.md from the proto package directory or from the workspace root: {reason}"); }
-            }
-        }
-    }
-}
 
 /// The cells of one row of a markdown table, split on the ` | ` that separates
 /// them. The command table of the doc escapes the bar of an alternative as
