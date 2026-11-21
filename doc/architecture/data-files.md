@@ -146,7 +146,9 @@ Order in the file is the display order and is preserved.
 ### Configuration (TOML)
 
 Keys: which interface, which mail folders to scan, which plugins, which
-converters, `core.address`, `core.port`, data directory (default: current
+converters, `core.address`, `core.port`, `core.idle_timeout` (idle timeout
+of the core daemon, in whole seconds; absent means 900, the 15 minutes
+without commands of `core-protocol.md`), data directory (default: current
 directory). Draft, not yet accepted: the file name and location
 (`phin.toml` in the data directory) are fixed here.
 

@@ -129,6 +129,7 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::time::Duration;
+use std::time::Instant;
 
 use crate::protocol::interpret;
 use crate::protocol::writer::EventSink;
@@ -187,9 +188,13 @@ use crate::technical::transport_cfg::{CONFIG_FILE_NAME, DEFAULT_ADDRESS, LOCK_FI
 #[cfg(test)]
 use crate::protocol::interpret::TextInput;
 
-/// The idle timeout this build defaults to: 15 MINUTES without commands
-/// (`core-protocol.md:16`), named because the value crosses a process boundary
-/// and the config keys of `data-files.md:146-152` hold no key for it.
+/// The idle timeout this build DEFAULTS to: 15 MINUTES without commands
+/// (`core-protocol.md:16`), the FALLBACK of the configuration key
+/// `core.idle_timeout` of `data-files.md:147` (user decision 40, which
+/// closed the doc gap 3.6c left OPEN), and named as a constant because the
+/// value crosses a process boundary: [`spawn_arguments`] hands the RESOLVED
+/// value to the daemon child, which the `--idle-timeout=` flag OVERRIDES
+/// the key with (`daemon_settings` reads the flag FIRST).
 pub const DEFAULT_IDLE_SECONDS: i64 = 15 * 60;
 
 /// The argv flag that selects daemon mode in `core/src/main.rs`. Invented HERE
@@ -243,7 +248,28 @@ pub struct StreamText {
     /// Set when the pending text was flushed as a half line at the end of the
     /// stream, so the next read says "no more text" ([`interpret::Stop
     /// .HalfLineAtEnd`] is then what the interpreter reports).
-    pub flushed: bool
+    pub flushed: bool,
+
+    /// The idle window this side ENFORCES, in SECONDS: on the interface side
+    /// ([`open_session`]) the FULL timeout, since that session owns its own clock;
+    /// on a connection ACCEPTED by the daemon ([`serve_one_connection`]) the
+    /// REMAINDER of the daemon's ONE shared window (decision 39: `core-protocol.md:16`'s
+    /// "15 minutes WITHOUT commands" is measured from the last COMMAND LINE
+    //   read ANYWHERE, so 3.6d hands a connection what is LEFT, never a fresh
+    //   window).
+    pub window_seconds: i64,
+
+    /// WHEN the last COMMAND LINE of this stream was READ, and the only
+    /// moment the read deadline below is ever measured from: a connection
+    //   ARRIVING does NOT touch it (decision 39), a line read HERE does.
+    pub last_command: Instant,
+
+    /// How many COMMAND LINES this session has READ. The daemon needs the
+    /// difference between "the silence SINCE the last line read HERE" and
+    /// "NOTHING was ever read HERE", in which case the WHOLE session length
+    //   is the silence the shared window must LOSE (see
+    /// [`serve_one_connection`]'s doc).
+    pub commands_read: i64
 }
 
 /// Hand out the next text of the connection.
@@ -266,6 +292,12 @@ impl interpret::TextInput for StreamText {
             return interpret::TextRead::Done;
         }
         loop {
+            // RE-ARM the socket read deadline BEFORE EVERY blocking read to the
+            // REMAINDER of the window from the last COMMAND LINE read HERE
+            // (decision 39), NEVER below ONE SECOND — so a session that sits
+            // silent LOSES the window it was GIVEN, and the NEXT connection is
+            // handed only what is LEFT by [`serve_daemon`].
+            set_read_deadline(&self.reader, remaining_window_seconds(self.window_seconds, millis_between(self.last_command, Instant::now())));
             let mut buffer = vec![0u8];
             match self.reader.read(&mut buffer) {
                 Err(reason) => {
@@ -317,6 +349,14 @@ impl interpret::TextInput for StreamText {
                         return interpret::TextRead::Unreadable(self.unreadable.to_string());
                     }
                     if self.pending.contains("\n") {
+                        // A COMMAND LINE HAS been read HERE: the doc's idle window
+                        // STARTS over at THIS moment (`core-protocol.md:16`: the
+                        // timeout is counted "WITHOUT commands", not "WITHOUT
+                        // interfaces"), for the read deadline of this session AND
+                        // for the daemon's shared clock (see
+                        // [`serve_one_connection`] and [`serve_daemon`]).
+                        self.last_command = Instant::now();
+                        self.commands_read = self.commands_read + 1;
                         let chunk = self.pending.to_string();
                         self.pending = String::new();
                         return interpret::TextRead::Text(chunk);
@@ -903,7 +943,10 @@ pub fn open_session(endpoint: &Endpoint, nonce: String, handshake_seconds: i64, 
                                                 ended: false,
                                                 unreadable: String::new(),
                                                 timed_out: false,
-                                                flushed: false
+                                                flushed: false,
+                                                window_seconds: idle_seconds,
+                                                last_command: Instant::now(),
+                                                commands_read: 0
                                             };
                                             let sink = LatchSink { writer: writer, broken: false };
                                             return (Some(Connection { text: text, sink: sink, address: address.to_string(), session: session.to_string() }), Attempt::Handshook(PROTOCOL_VERSION.to_string(), session));
@@ -1033,6 +1076,45 @@ fn set_read_deadline(socket: &TcpStream, seconds: i64) {
         Err(_) => { }
         Ok(_) => { }
     }
+}
+
+/// The MILLISECONDS between two instants, SATURATED rather than WRAPPED. NO
+/// `as` cast anywhere (the conversion of this toolchain's `Duration::as_millis`;
+/// the facts PROVEN in the cycle-1 probe: `Instant::now()`, `Instant - Instant`
+/// and `as_millis()` returning a `u128` all WORK, while
+/// `Duration::milliseconds`/`as_milliseconds`/`std::time::milliseconds` DO NOT
+/// EXIST, so `i64::try_from` is the ONLY total route). A duration too long for
+/// an `i64` of milliseconds can only mean "far beyond any documented timeout",
+/// which is exactly what the saturation reports to the two helpers below.
+fn millis_between(then: Instant, now: Instant) -> i64 {
+    let passed = (now - then).as_millis();
+    return match i64::try_from(passed) {
+        Err(_) => { i64::MAX }
+        Ok(held) => { held }
+    };
+}
+
+/// The SECONDS of an idle window LEFT, GIVEN the milliseconds ELAPSED since
+/// the last COMMAND LINE: NEVER below ONE SECOND, so a window already spent
+/// still produces a blocking read that REPORTS the timeout instead of a read
+/// that returns instantly and looks like an end of input.
+fn remaining_window_seconds(window_seconds: i64, elapsed_ms: i64) -> i64 {
+    let consumed_seconds = elapsed_ms / 1000;
+    if window_seconds - consumed_seconds < 1 {
+        return 1;
+    }
+    return window_seconds - consumed_seconds;
+}
+
+/// The WHOLE SECONDS of a shared window LEFT: what [`serve_daemon`] hands
+/// the NEXT connection (`(idle_millis - since_command_ms) / 1000`), with the
+/// same NEVER-below-ONE-SECOND floor as [`remaining_window_seconds`].
+fn whole_seconds_left(millis: i64) -> i64 {
+    let seconds = millis / 1000;
+    if seconds < 1 {
+        return 1;
+    }
+    return seconds;
 }
 
 /// The length of the handshake read timeout this transport sets by default
@@ -1207,6 +1289,23 @@ pub enum SessionEnd {
     SinkBroken
 }
 
+/// What one SERVED session left of the daemon's ONE shared idle window
+/// (decision 39): the second half of what [`serve_one_connection`] reports,
+/// and the ONLY thing the accept loop of [`serve_daemon`] advances its clock
+/// with. The DISTINCTION the doc forces: `core-protocol.md:16` counts the
+/// timeout "WITHOUT commands", so a session that READ a command line RESETS
+/// the count from THAT line, while a session that read NOTHING AT ALL
+/// CONSUMES its whole length.
+#[derive(Debug, Eq, PartialEq)]
+pub enum SessionSilence {
+    /// The session READ at least one COMMAND LINE: the milliseconds are the
+    /// silence SINCE that line, which is what the shared clock BECOMES.
+    Restarted(i64),
+    /// The session read NO command line whatsoever: the milliseconds are the
+    /// WHOLE length of the session, which the shared clock ADDS UP.
+    Silent(i64)
+}
+
 /// Serve ONE accepted connection: hand the socket pair to plan 3.4's
 /// interpreter loop — [`interpret.run_session`] with the daemon's
 /// lock-DERIVED session id — exactly as [`open_session`] hands a pair to
@@ -1215,18 +1314,22 @@ pub enum SessionEnd {
 /// [`open_session`], which THIS build's interpreter answers with the `hello`
 /// line the interface's checker then verifies (decision 29/30 split: the
 /// transport guarantees the ORDER, the interpreter answers the VERB).
-pub fn serve_one_connection(stream: TcpStream, idle_seconds: i64, session: &str, work: &mut dyn interpret::Work) -> SessionEnd {
+pub fn serve_one_connection(stream: TcpStream, window_seconds: i64, session: &str, work: &mut dyn interpret::Work) -> (SessionEnd, SessionSilence) {
     // The listener of [`serve_daemon`] is NON-BLOCKING, and on this platform
     // the accepted socket INHERITS that, which would turn every read into an
     // instant `WouldBlock`: the accepted stream is put back to BLOCKING and
-    // the read timeout of `core-protocol.md:16` becomes the idle timeout.
+    // the read timeout of `core-protocol.md:16` becomes the idle timeout. It
+    // is the REMAINDER `window_seconds` the daemon hands out (decision 39),
+    // NOT the full timeout, and [`StreamText.read_text`] RE-ARMS it from
+    // there on, so the arrival of an interface NEVER extends anything.
     match stream.set_nonblocking(false) {
         Err(_) => { }
         Ok(_) => { }
     }
-    set_read_deadline(&stream, idle_seconds);
+    let started = Instant::now();
+    set_read_deadline(&stream, window_seconds);
     match stream.try_clone() {
-        Err(_) => { return SessionEnd::Unreadable("the socket pair of the connection could not be made".to_string()); }
+        Err(_) => { return (SessionEnd::Unreadable("the socket pair of the connection could not be made".to_string()), SessionSilence::Silent(millis_between(started, Instant::now()))); }
         Ok(writer) => {
             let mut text = StreamText {
                 reader: stream,
@@ -1234,26 +1337,39 @@ pub fn serve_one_connection(stream: TcpStream, idle_seconds: i64, session: &str,
                 ended: false,
                 unreadable: String::new(),
                 timed_out: false,
-                flushed: false
+                flushed: false,
+                window_seconds: window_seconds,
+                last_command: started,
+                commands_read: 0
             };
             let mut sink = LatchSink { writer: writer, broken: false };
             let stop = interpret::run_session(&mut text, &mut sink, work, session.to_string());
+            // What the session LEFT of the SHARED window, measured FROM the
+            // last COMMAND LINE it READ — or, when it read NONE, its WHOLE
+            // length, because then the doc's "WITHOUT commands" ran
+            // uninterrupted through this session (decision 39).
+            let elapsed = millis_between(started, Instant::now());
+            let left = if text.commands_read > 0 {
+                SessionSilence::Restarted(millis_between(text.last_command, Instant::now()))
+            } else {
+                SessionSilence::Silent(elapsed)
+            };
             // The idle condition is read from the TEXT side, not from `stop`:
             // a timed-out read hands the interpreter [`interpret.TextRead.Done`]
             // (see [`StreamText`]'s `read_text`), which ends the session as
             // `EndOfInput` — the FLAG says WHICH end of input it was.
             if text.timed_out {
-                return SessionEnd::IdleTimeout;
+                return (SessionEnd::IdleTimeout, left);
             }
             match stop {
-                interpret::Stop::ShutdownRequested => { return SessionEnd::ShutDown; }
-                interpret::Stop::StreamBroken(why) => { return SessionEnd::Unreadable(why); }
-                interpret::Stop::HalfLineAtEnd(tail) => { return SessionEnd::HalfLine(tail); }
+                interpret::Stop::ShutdownRequested => { return (SessionEnd::ShutDown, left); }
+                interpret::Stop::StreamBroken(why) => { return (SessionEnd::Unreadable(why), left); }
+                interpret::Stop::HalfLineAtEnd(tail) => { return (SessionEnd::HalfLine(tail), left); }
                 interpret::Stop::EndOfInput => {
                     if sink.broken {
-                        return SessionEnd::SinkBroken;
+                        return (SessionEnd::SinkBroken, left);
                     }
-                    return SessionEnd::PeerClosed;
+                    return (SessionEnd::PeerClosed, left);
                 }
             }
         }
@@ -1276,11 +1392,19 @@ pub enum DaemonExit {
     ListenerBroken(String, Removal)
 }
 
-/// The accept-loop's pause as a wait: 250 ms BETWEEN looks at the
+/// The accept-loop's pause as a WAIT: 250 ms BEFORE the next look at the
 /// NON-BLOCKING listener — small next to an idle timeout of MINUTES, so the
 /// timeout's own LENGTH stays honoured while the wait needs no thread, no
 /// channel and no second socket (this toolchain has no poll primitive and
-/// no stdlib channel, the toolchain facts of this row's cycle-1 log).
+/// no stdlib channel, the toolchain facts of this row's cycle-1 log). THIS is
+/// ONLY the LENGTH OF THE WAIT, NEVER the clock: the WINDOW of
+/// `core-protocol.md:16` is measured in REAL time by [`millis_between`],
+/// because `std::thread::sleep` OVERSHOOTS — a `Duration` is a FLOOR, so every
+/// poll costs 250 ms PLUS the scheduler's overshoot. Summing the constant
+/// instead of reading the clock would UNDER-count the wall time by Σ(overshoot)
+/// per poll (~4-70 s over the 3600 sleeps of a 900 s idle window under normal
+/// load, MINUTES under pathological load) and a purely idle daemon would OUTLIVE
+/// the documented window by exactly that drift.
 const ACCEPT_POLL_MILLIS: i64 = 250;
 
 /// Serve the daemon: accept connections ONE AT A TIME and serve each
@@ -1300,17 +1424,43 @@ pub fn serve_daemon(listener: &TcpListener, data_dir: &std::path::Path, idle_sec
         Err(_) => { }
         Ok(_) => { }
     }
-    // The idle clock counts MILLISECONDS WAITED with no connection in hand;
-    // it RESETS on every accepted connection, which is what "WITHOUT
-    // COMMANDS" means at the accept boundary. Within a session the SAME
-    // timeout is the socket read deadline ([`serve_one_connection`]).
+    // The idle clock is ONE WINDOW (decision 39, `core-protocol.md:16`: the
+    // timeout is "15 minutes WITHOUT commands" — commands ANYWHERE, in a
+    // session or between them), measured in MILLISECONDS SINCE the last
+    // COMMAND LINE READ. An interface merely being ACCEPTED extends NOTHING:
+    // the `waited = 0;` reset 3.6c put on every accepted connection is GONE,
+    // and a session's own silence is what [`serve_one_connection`] reports back
+    // and this clock spends.
     let idle_millis = idle_seconds * 1000;
-    let mut waited: i64 = 0;
+    let mut since_command_ms: i64 = 0;
+    // The end of the PREVIOUS POLL, so each poll can ADD the milliseconds it
+    // ACTUALLY TOOK (`Instant`/[`millis_between`], the same instrument the
+    // session-silence half of this ONE window uses) rather than a SUM of the
+    // 250 ms WAITS, which OVER-counts nothing but UNDER-counts by Σ of the
+    // sleep's overshoot — see [`ACCEPT_POLL_MILLIS`]. MEASURED ON THIS BOX (the
+    // reverse mutant, the sleep SUM, run 15 times at the DEFAULT thread count and
+    // 5 times with `RUST_TEST_THREADS=12`): 0 runs FAILED, and the exit times of
+    // the 6 SECOND-window tests moved by AT MOST 30 ms in EITHER direction (about
+    // 1.3 ms per poll at 12 threads), while every margin in those tests is AT
+    // LEAST 550 ms — so NO existing test can SEE the drift, whose real cost is
+    // Σ(overshoot) over the 3600 polls of the documented 900 SECOND window (~4-70
+    // s under normal load, MINUTES under pathological load). The bound is NOT
+    // pinned by a test; the clock is fixed here because the DOC fixes the WINDOW
+    // in WALL TIME.
+    let mut last_poll = Instant::now();
     loop {
         match listener.accept() {
             Ok(pair) => {
                 let stream = pair.0;
-                match serve_one_connection(stream, idle_seconds, &session, work) {
+                // The window handed to this connection is the REMAINDER of
+                // the shared one, NEVER the full timeout: after the last
+                // command the daemon can outlive it by AT MOST one window,
+                // so the ~2x tail 3.6c could produce (15 MINUTES in the
+                // accept loop PLUS a FRESH 15 MINUTES on the socket, ~30
+                // MINUTES holding `state/core.lock`) is IMPOSSIBLE.
+                let window_seconds = whole_seconds_left(idle_millis - since_command_ms);
+                let served = serve_one_connection(stream, window_seconds, &session, work);
+                match served.0 {
                     SessionEnd::IdleTimeout => {
                         return DaemonExit::IdleExit(remove_lock(data_dir));
                     }
@@ -1322,7 +1472,26 @@ pub fn serve_daemon(listener: &TcpListener, data_dir: &std::path::Path, idle_sec
                     SessionEnd::SinkBroken => { }
                     SessionEnd::Unreadable(_) => { }
                 }
-                waited = 0;
+                match served.1 {
+                    // A COMMAND LINE WAS read inside the session: the window
+                    // RESTARTS from THAT line, so the clock BECOMES the
+                    // silence the session left after it.
+                    SessionSilence::Restarted(held) => { since_command_ms = held; }
+                    // NO command line at all: the WHOLE session length is
+                    // silence the shared window must LOSE — ARRIVING was
+                    // NEVER activity for it.
+                    SessionSilence::Silent(held) => { since_command_ms = since_command_ms.saturating_add(held); }
+                }
+                // The session's own REAL time arrived in `held`, so this
+                // POLL is OVER by THAT much and the NEXT one must not count
+                // it twice.
+                last_poll = Instant::now();
+                if since_command_ms >= idle_millis {
+                    // The window ran out while a session was in hand, so the
+                    // daemon does NOT wait for another interface to notice:
+                    // `core-protocol.md:192-201` — exit and remove the lock.
+                    return DaemonExit::IdleExit(remove_lock(data_dir));
+                }
             }
             Err(reason) => {
                 let kind = reason.kind();
@@ -1330,8 +1499,14 @@ pub fn serve_daemon(listener: &TcpListener, data_dir: &std::path::Path, idle_sec
                     return DaemonExit::ListenerBroken(format!("{reason}"), remove_lock(data_dir));
                 }
                 std::thread::sleep(millis_pause(ACCEPT_POLL_MILLIS));
-                waited += ACCEPT_POLL_MILLIS;
-                if waited >= idle_millis {
+                // REAL ELAPSED TIME, not the length of the WAIT: the WINDOW of
+                // `core-protocol.md:16` is "15 minutes WITHOUT commands" in
+                // WALL TIME, so the clock spends what this poll ACTUALLY took
+                // (the 250 ms WAIT plus the sleep's overshoot).
+                let now = Instant::now();
+                since_command_ms = since_command_ms.saturating_add(millis_between(last_poll, now));
+                last_poll = now;
+                if since_command_ms >= idle_millis {
                     return DaemonExit::IdleExit(remove_lock(data_dir));
                 }
             }
@@ -1352,8 +1527,12 @@ pub struct DaemonSettings {
     /// DIRECTORY — `data-files.md:152`: "data directory (default: current
     /// directory)").
     pub data_dir: std::path::PathBuf,
-    /// The idle timeout in seconds (the `--idle-timeout=` flag, else
-    /// [`DEFAULT_IDLE_SECONDS`], decision 34).
+    /// The idle timeout in seconds: the `--idle-timeout=` flag of THIS argv
+    /// OVERRIDES the CONFIGURATION, and what the flag leaves unset falls back
+    /// to the key `core.idle_timeout` of `data-files.md:147` (user decision 40),
+    /// which itself falls back to [`DEFAULT_IDLE_SECONDS`] = the 15 MINUTES
+    /// without commands of `core-protocol.md:16`. The value is EXACTLY what
+    /// [`spawn_arguments`] hands the daemon child, so parent and child agree.
     pub idle_seconds: i64
 }
 
@@ -1384,7 +1563,7 @@ pub fn daemon_settings(args: Vec::<String>) -> (Option::<DaemonSettings>, Vec::<
     let mut host = String::new();
     let mut port = DEFAULT_PORT;
     let mut port_given = false;
-    let mut idle_seconds = DEFAULT_IDLE_SECONDS;
+    let mut idle_flag_seconds: Option::<i64> = None;
     let mut data_dir = std::path::PathBuf::new();
     match std::env::current_dir() {
         Err(_) => { }
@@ -1431,7 +1610,7 @@ pub fn daemon_settings(args: Vec::<String>) -> (Option::<DaemonSettings>, Vec::<
                             if value <= 0 {
                                 issues.push(DaemonFlagIssue::IdleTooSmall(value));
                             } else {
-                                idle_seconds = value;
+                                idle_flag_seconds = Some(value);
                             }
                         }
                     }
@@ -1459,7 +1638,26 @@ pub fn daemon_settings(args: Vec::<String>) -> (Option::<DaemonSettings>, Vec::<
             }
         }
     }
-    return (Some(DaemonSettings { host: host, port: port, data_dir: data_dir, idle_seconds: idle_seconds }), Vec::<DaemonFlagIssue>::new());
+    // THE IDLE WINDOW precedence (user decision 40): an explicit
+    // `--idle-timeout=` flag is EXPLICIT and WINS; what the flag leaves unset
+    // falls back to the CONFIGURATION KEY `core.idle_timeout`
+    // (`data-files.md:147`, integer SECONDS), whose own ABSENT case is
+    // [`DEFAULT_IDLE_SECONDS`]. A key of the WRONG type, ZERO or NEGATIVE is
+    // a typed [`ConfigIssue`] list, NEVER a default.
+    match idle_flag_seconds {
+        Some(held) => {
+            return (Some(DaemonSettings { host: host, port: port, data_dir: data_dir, idle_seconds: held }), Vec::<DaemonFlagIssue>::new());
+        }
+        None => { }
+    }
+    match crate::technical::transport_cfg::idle_timeout_or_default(&data_dir) {
+        (held_seconds, held_issues) => {
+            if held_issues.len() > 0 {
+                return (None, [DaemonFlagIssue::ConfigRejected(held_issues)].to_vec());
+            }
+            return (Some(DaemonSettings { host: host, port: port, data_dir: data_dir, idle_seconds: held_seconds }), Vec::<DaemonFlagIssue>::new());
+        }
+    }
 }
 
 // ============================================================================
@@ -1628,128 +1826,166 @@ struct ListenerSpec {
     pub hello_version: i64
 }
 
+/// What a FAKE listener THREAD (the clause (b)/(c) fake daemon answering
+/// `hello`, and the clause (d) FOREIGN listener answering NONCE garbage)
+/// answers ON: its [`ListenerSpec`] PLUS the listener ALREADY BOUND BY THE
+/// CALLING THREAD. The bind used to live INSIDE the spawned thread, so on a
+/// loaded box a test could exhaust the 2 SECOND budget of
+/// [`wait_for_handshake`] BEFORE that thread had bound its port and the
+/// attempt came down as [`Attempt.NothingListening`]; bound HERE the port is
+/// LISTENING when the starter returns, so NO wait budget can be lost to
+/// thread-start latency. `None` keeps the old behaviour of a fake that got
+/// NO listener at all: its thread returns at once.
 #[cfg(test)]
-fn listener_work(spec: ListenerSpec) {
+struct BoundFakeListener {
+    pub listener: Option::<TcpListener>,
+    pub spec: ListenerSpec
+}
+
+/// Bind the fake's listener IN THE CALLING THREAD with the SAME port logic
+/// production [`bind_listener`] uses ([`bind_port`] then `TcpListener::bind`),
+/// so the fake daemon and the FOREIGN listener BEHAVE EXACTLY as before.
+#[cfg(test)]
+fn bind_fake_listener(spec: &ListenerSpec) -> Option::<TcpListener> {
     let endpoint = Endpoint { host: spec.host.to_string(), port: spec.port };
-    match bind_port(&endpoint) {
-        None => { return; }
+    return match bind_port(&endpoint) {
+        None => { println!("the fake listener port [{at}] is not one this toolchain can bind", at = spec.port.to_string()); None }
         Some(short) => {
             match TcpListener::bind((spec.host.to_string(), short)) {
+                Err(_) => { println!("the fake listener could not be bound at [{at}]", at = spec.port.to_string()); None }
+                Ok(listener) => { Some(listener) }
+            }
+        }
+    };
+}
+
+#[cfg(test)]
+fn fake_listener_work(work: BoundFakeListener) {
+    let spec = work.spec;
+    match work.listener {
+        None => { return; }
+        Some(listener) => {
+            loop {
+            match listener.accept() {
                 Err(_) => { return; }
-                Ok(listener) => {
-                    loop {
-                    match listener.accept() {
-                        Err(_) => { return; }
-                        Ok(held) => {
-                            let mut socket = held.0;
-                            let mut received = String::new();
-                            match read_answer_line(&socket, 5) {
-                                AnswerLine::Got(line) => {
-                                    received += &line.to_string();
-                                    received += "\n";
-                                    if spec.answers_hello {
-                                        let mut seen = String::new();
-                                        match serde_json::from_str::<Value>(&line) {
-                                            Err(_) => { }
-                                            Ok(held) => {
-                                                match held.as_object() {
+                Ok(held) => {
+                    let mut socket = held.0;
+                    let mut received = String::new();
+                    match read_answer_line(&socket, 5) {
+                        AnswerLine::Got(line) => {
+                            received += &line.to_string();
+                            received += "\n";
+                            if spec.answers_hello {
+                                let mut seen = String::new();
+                                match serde_json::from_str::<Value>(&line) {
+                                    Err(_) => { }
+                                    Ok(held) => {
+                                        match held.as_object() {
+                                            None => { }
+                                            Some(fields) => {
+                                                match fields.get("nonce") {
                                                     None => { }
-                                                    Some(fields) => {
-                                                        match fields.get("nonce") {
+                                                    Some(nonce_value) => {
+                                                        match nonce_value.as_str() {
                                                             None => { }
-                                                            Some(nonce_value) => {
-                                                                match nonce_value.as_str() {
-                                                                    None => { }
-                                                                    Some(held_nonce) => { seen = held_nonce.to_string(); }
-                                                                }
-                                                            }
+                                                            Some(held_nonce) => { seen = held_nonce.to_string(); }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                        let mut asked_back = seen;
-                                        if spec.reply_nonce.len() > 0 {
-                                            asked_back = spec.reply_nonce.to_string();
-                                        }
-                                        let mut claimed_version = PROTOCOL_VERSION;
-                                        if spec.hello_version > 0 {
-                                            claimed_version = spec.hello_version;
-                                        }
-                                        match proto::codec::encode_frame(&proto::codec::Message::Outbound(proto::event::Event::Hello(asked_back.to_string(), spec.session.to_string(), claimed_version))) {
-                                            Err(_) => { }
-                                            Ok(frame) => {
-                                                match socket.write_all(frame.as_bytes()) {
-                                                    Err(_) => { }
-                                                    Ok(_) => { }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        // FOREIGN: an `event` line this build
-                                        // can DECODE (a `result` with its
-                                        // `cmd`) but which is NOT a
-                                        // `hello` — the checker's `NotHello`
-                                        // reading, clause (d)'s "not our
-                                        // daemon". A line this build cannot
-                                        // decode at all would land on the
-                                        // transport's `Undecodable` ATTEMPT
-                                        // instead; BOTH readings REFUSE, and
-                                        // the one here pins the NotHello
-                                        // path of `handshake.rs:355`.
-                                        match socket.write_all("{\"v\":1,\"event\":\"result\",\"cmd\":\"list-pending\"}\n".to_string().as_bytes()) {
+                                    }
+                                }
+                                let mut asked_back = seen;
+                                if spec.reply_nonce.len() > 0 {
+                                    asked_back = spec.reply_nonce.to_string();
+                                }
+                                let mut claimed_version = PROTOCOL_VERSION;
+                                if spec.hello_version > 0 {
+                                    claimed_version = spec.hello_version;
+                                }
+                                match proto::codec::encode_frame(&proto::codec::Message::Outbound(proto::event::Event::Hello(asked_back.to_string(), spec.session.to_string(), claimed_version))) {
+                                    Err(_) => { }
+                                    Ok(frame) => {
+                                        match socket.write_all(frame.as_bytes()) {
                                             Err(_) => { }
                                             Ok(_) => { }
                                         }
                                     }
                                 }
-                                _ => { return; }
-                            }
-                            if !spec.answers_hello {
-                                // Drain the REST of the interface's stream
-                                // (NOTHING is there when the transport
-                                // behaved, and the CLOSED stream ends this
-                                // loop), then write EVERY byte received to
-                                // the log — the clause (d) PROOF.
-                                loop {
-                                    let mut buffer = vec![0u8];
-                                    match socket.read(&mut buffer) {
-                                        Err(_) => { break; }
-                                        Ok(read) => {
-                                            if read == 0 {
-                                                break;
-                                            }
-                                            match String::from_utf8(buffer) {
-                                                Err(_) => { }
-                                                Ok(decoded) => { received += &decoded; }
-                                            }
-                                        }
-                                    }
-                                }
-                                match std::fs::write(&std::path::PathBuf::from(spec.log_path.to_string()), received) {
+                            } else {
+                                // FOREIGN: an `event` line this build
+                                // can DECODE (a `result` with its
+                                // `cmd`) but which is NOT a
+                                // `hello` — the checker's `NotHello`
+                                // reading, clause (d)'s "not our
+                                // daemon". A line this build cannot
+                                // decode at all would land on the
+                                // transport's `Undecodable` ATTEMPT
+                                // instead; BOTH readings REFUSE, and
+                                // the one here pins the NotHello
+                                // path of `handshake.rs:355`.
+                                match socket.write_all("{\"v\":1,\"event\":\"result\",\"cmd\":\"list-pending\"}\n".to_string().as_bytes()) {
                                     Err(_) => { }
                                     Ok(_) => { }
                                 }
                             }
                         }
+                        _ => { return; }
                     }
+                    if !spec.answers_hello {
+                        // Drain the REST of the interface's stream
+                        // (NOTHING is there when the transport
+                        // behaved, and the CLOSED stream ends this
+                        // loop), then write EVERY byte received to
+                        // the log — the clause (d) PROOF.
+                        loop {
+                            let mut buffer = vec![0u8];
+                            match socket.read(&mut buffer) {
+                                Err(_) => { break; }
+                                Ok(read) => {
+                                    if read == 0 {
+                                        break;
+                                    }
+                                    match String::from_utf8(buffer) {
+                                        Err(_) => { }
+                                        Ok(decoded) => { received += &decoded; }
+                                    }
+                                }
+                            }
+                        }
+                        match std::fs::write(&std::path::PathBuf::from(spec.log_path.to_string()), received) {
+                            Err(_) => { }
+                            Ok(_) => { }
+                        }
                     }
                 }
+            }
             }
         }
     }
 }
 
+/// Start a FAKE listener whose port is ALREADY LISTENING when this returns:
+/// the listener is BOUND IN THE CALLING THREAD and MOVED into the thread that
+/// answers on it (see [`BoundFakeListener`]).
+#[cfg(test)]
+fn start_listening_fake(spec: ListenerSpec) {
+    let bound = bind_fake_listener(&spec);
+    let work = BoundFakeListener { listener: bound, spec: spec };
+    std::thread::spawn(|| -> () { fake_listener_work(work) });
+}
+
 #[cfg(test)]
 fn start_fake_daemon(host: String, port: i64, session: String) {
     let spec = ListenerSpec { host: host.to_string(), port: port, session: session.to_string(), log_path: String::new(), answers_hello: true, reply_nonce: String::new(), hello_version: 0 };
-    std::thread::spawn(|| -> () { listener_work(spec) });
+    start_listening_fake(spec);
 }
 
 #[cfg(test)]
 fn start_foreign_listener(host: String, port: i64, log_path: String) {
     let spec = ListenerSpec { host: host.to_string(), port: port, session: String::new(), log_path: log_path.to_string(), answers_hello: false, reply_nonce: String::new(), hello_version: 0 };
-    std::thread::spawn(|| -> () { listener_work(spec) });
+    start_listening_fake(spec);
 }
 
 /// The fake interface of the DAEMON-side tests: it shows up at the listener
@@ -1779,17 +2015,59 @@ struct QuietPeerSpec {
     /// Whether the peer shuts down its OWN read end, so the daemon's writes
     /// to it fail: the broken pipe [`LatchSink`] latches on.
     pub closes_read: bool,
-    /// How long the peer then HOLDS its socket OPEN, milliseconds.
-    pub hold_millis: i64
+    /// How long the peer HOLDS its socket OPEN after what it writes, milliseconds.
+    pub hold_millis: i64,
+    /// How long the peer waits AFTER CONNECTING, BEFORE it writes anything:
+    /// the accept loop has ACCEPTED it and its session's READ DEADLINE is
+    /// already running, so this is the ONLY way to make a COMMAND LINE ARRIVE
+    /// in the MIDDLE of a session (what 3.6d's re-arm is about).
+    pub write_after_connect_millis: i64
+}
+
+/// What the fake INTERFACE THREAD needs: its [`QuietPeerSpec`] PLUS what its
+/// socket ALREADY IS — CONNECTED BY THE CALLING THREAD when the shape
+/// ARRIVES IMMEDIATELY (so thread-start latency can NEVER delay the interface
+/// the test is WAITING for: the connect completes into the listener's backlog,
+/// the probe fact of [`socket_pair`] the two [`streamer_work`] tests below
+/// already rely on), or `None` for a LATE ARRIVAL, whose connect still happens
+/// IN THE THREAD because an EARLY connect would park the interface in the
+/// backlog and DESTROY the arrival time these tests pin; for THAT shape
+/// `anchor` is the CALLER's INSTANT at which the peer was started, so the
+/// wait is measured against the CALLER's clock and thread-start latency can
+/// only SHORTEN the sleep, NEVER move the arrival.
+#[cfg(test)]
+struct QuietPeerJob {
+    pub spec: QuietPeerSpec,
+    pub socket: Option::<TcpStream>,
+    pub anchor: Instant
+}
+
+/// The socket this fake interface answers ON, arriving WHEN the shape says
+/// it does.
+#[cfg(test)]
+fn peer_socket(connected: Option::<TcpStream>, anchor: Instant, spec: &QuietPeerSpec) -> Option::<TcpStream> {
+    match connected {
+        Some(socket) => { return Some(socket); }
+        None => { }
+    }
+    let waited = millis_between(anchor, Instant::now());
+    let remaining = spec.wait_before_millis - waited;
+    if remaining > 0 {
+        std::thread::sleep(millis_pause(remaining));
+    }
+    let short: u16 = spec.port.try_into().unwrap_or(0);
+    match TcpStream::connect((spec.host.to_string(), short)) {
+        Err(_) => { println!("the fake interface never connected at [{at}]", at = spec.port.to_string()); return None; }
+        Ok(socket) => { return Some(socket); }
+    }
 }
 
 #[cfg(test)]
-fn quiet_peer_work(spec: QuietPeerSpec) {
-    std::thread::sleep(millis_pause(spec.wait_before_millis));
-    let short: u16 = spec.port.try_into().unwrap_or(0);
-    match TcpStream::connect((spec.host.to_string(), short)) {
-        Err(_) => { return; }
-        Ok(mut socket) => {
+fn quiet_peer_work(job: QuietPeerJob) {
+    let spec = job.spec;
+    match peer_socket(job.socket, job.anchor, &spec) {
+        None => { return; }
+        Some(mut socket) => {
             if spec.closes_read {
                 // Shut down FIRST: the probe fact of the sink test below is
                 // that the FIRST write of the daemon is still ACCEPTED into
@@ -1807,6 +2085,9 @@ fn quiet_peer_work(spec: QuietPeerSpec) {
                     }
                 }
             }
+            // The peer was ACCEPTED at connect time; this is the silence its
+            // session sits through BEFORE a COMMAND LINE reaches it.
+            std::thread::sleep(millis_pause(spec.write_after_connect_millis));
             if spec.sends_version_request {
                 let asked_nonce = spec.nonce.to_string();
                 match socket.write_all(version_request_frame(&asked_nonce).as_bytes()) {
@@ -1841,7 +2122,23 @@ fn quiet_peer_work(spec: QuietPeerSpec) {
 
 #[cfg(test)]
 fn start_quiet_peer(spec: QuietPeerSpec) {
-    std::thread::spawn(|| -> () { quiet_peer_work(spec) });
+    // The socket this interface needs is ESTABLISHED HERE whenever the shape
+    // arrives at once (`wait_before_millis` ZERO), so no test can be waiting
+    // on a peer thread the OS has not started; a LATE shape keeps its connect
+    // IN THE THREAD, anchored to the INSTANT below, because arriving EARLIER
+    // than the shape says would change WHAT the test is pinning (see
+    // [`QuietPeerJob`]).
+    let anchor = Instant::now();
+    let mut connected: Option::<TcpStream> = None;
+    if spec.wait_before_millis <= 0 {
+        let short: u16 = spec.port.try_into().unwrap_or(0);
+        match TcpStream::connect((spec.host.to_string(), short)) {
+            Err(_) => { println!("the fake interface could not be connected at [{at}] in the calling thread", at = spec.port.to_string()); }
+            Ok(socket) => { connected = Some(socket); }
+        }
+    }
+    let job = QuietPeerJob { spec: spec, socket: connected, anchor: anchor };
+    std::thread::spawn(|| -> () { quiet_peer_work(job) });
 }
 
 /// The recorder-spawner of the SPAWN-path tests: it records the EXECUTABLE
@@ -1888,11 +2185,12 @@ impl Spawner for FakeSpawner {
 // process-level halves live in `core/tests/transport_lifecycle.rs`.
 // ----------------------------------------------------------------------------
 
-/// Wait until an open session at the endpoint can be handshaked, for the
-/// FAKE listener THREADS whose bind happens on another thread: WITHOUT this
-/// the test could connect-refuse BEFORE the fake listener is bound and read
-/// the live daemon as clause (c). Only `NothingListening` RETRIES; every
-/// other outcome — INCLUDING a REFUSAL — means the listener is there.
+/// Wait until an open session at the endpoint can be handshaked. Every fake
+/// listener of this module is BOUND BY THE CALLING THREAD (see
+/// [`BoundFakeListener`]), so the listener is THERE before the first attempt;
+/// this loop still covers the SPAWN path of [`FakeSpawner`], whose fake daemon
+/// is started by ANOTHER thread. Only `NothingListening` RETRIES; every other
+/// outcome — INCLUDING a REFUSAL — means the listener is there.
 #[cfg(test)]
 fn wait_for_handshake(endpoint: &Endpoint, nonce: String) -> Attempt {
     let mut last = Attempt::NothingListening(endpoint.host.to_string(), "wait exhausted".to_string());
@@ -2282,8 +2580,18 @@ struct StreamerSpec {
     pub bytes: i64
 }
 
+/// The peer of the two limit tests ALREADY CONNECTED BY THE CALLING THREAD
+/// (see [`QuietPeerJob`] for the same reasoning on the QUIET peers): the
+/// caller's listener then ACCEPTS the connect that is sitting in its BACKLOG
+/// the moment its own `accept` runs, and the WRITE is what the thread does.
 #[cfg(test)]
-fn streamer_work(spec: StreamerSpec) {
+struct StreamingPeerJob {
+    pub socket: Option::<TcpStream>,
+    pub spec: StreamerSpec
+}
+
+#[cfg(test)]
+fn streamer_work(job: StreamingPeerJob) {
     // THE PEER THAT STREAMS WITH NO line end: CONNECT (the backlog
     // trick of [`socket_pair`]'s probe fact — the caller's listener
     // needs NO accept for this connect to COMPLETE) and push `bytes`
@@ -2299,10 +2607,10 @@ fn streamer_work(spec: StreamerSpec) {
     // is ALSO the REAL shape: the DAEMON reads sessions from an
     // ACCEPTED socket (`core-protocol.md:14`), never from the
     // interface's own handle.
-    let short: u16 = spec.port.try_into().unwrap_or(0);
-    match TcpStream::connect((spec.host.to_string(), short)) {
-        Err(_) => { return; }
-        Ok(mut socket) => {
+    let spec = job.spec;
+    match job.socket {
+        None => { return; }
+        Some(mut socket) => {
             let mut chunk = String::new();
             while chunk.len() < 4096 {
                 chunk += "aaaaaaaa";
@@ -2319,6 +2627,18 @@ fn streamer_work(spec: StreamerSpec) {
                 }
                 written += 4096;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+fn start_streaming_peer(spec: StreamerSpec) {
+    let short: u16 = spec.port.try_into().unwrap_or(0);
+    match TcpStream::connect((spec.host.to_string(), short)) {
+        Err(_) => { println!("the streaming peer could not connect at [{at}] in the calling thread", at = spec.port.to_string()); return; }
+        Ok(socket) => {
+            let job = StreamingPeerJob { socket: Some(socket), spec: spec };
+            std::thread::spawn(|| -> () { streamer_work(job); });
         }
     }
 }
@@ -2344,7 +2664,7 @@ fn a_peer_just_under_the_pending_limit_with_no_line_end_ends_as_the_half_line_fl
         Err(_) => { assert!(false); }
         Ok(_listener) => {
             let spec = StreamerSpec { host: "127.0.0.1".to_string(), port: port, bytes: 61_440 };
-            let _peer_thread = std::thread::spawn(|| -> () { streamer_work(spec); });
+            start_streaming_peer(spec);
             // THE CALLER ACCEPTS THE PEER'S OWN CONNECTION — blocking
             // here is BOUNDED by the peer thread's connect, and the
             // accepted socket is EXACTLY what the DAEMON reads:
@@ -2359,7 +2679,10 @@ fn a_peer_just_under_the_pending_limit_with_no_line_end_ends_as_the_half_line_fl
                         ended: false,
                         unreadable: String::new(),
                         timed_out: false,
-                        flushed: false
+                        flushed: false,
+                        window_seconds: 1,
+                        last_command: Instant::now(),
+                        commands_read: 0
                     };
                     let mut handed = String::new();
                     let mut tries = 0;
@@ -2398,7 +2721,7 @@ fn the_pending_limit_refuses_a_peer_streaming_without_a_line_end_and_the_buffer_
         Err(_) => { assert!(false); }
         Ok(_listener) => {
             let spec = StreamerSpec { host: "127.0.0.1".to_string(), port: port, bytes: 73_728 };
-            let _peer_thread = std::thread::spawn(|| -> () { streamer_work(spec); });
+            start_streaming_peer(spec);
             // THE CALLER ACCEPTS THE PEER'S OWN CONNECTION — blocking
             // here is BOUNDED by the peer thread's connect, and the
             // accepted socket is EXACTLY what the DAEMON reads:
@@ -2413,7 +2736,10 @@ fn the_pending_limit_refuses_a_peer_streaming_without_a_line_end_and_the_buffer_
                         ended: false,
                         unreadable: String::new(),
                         timed_out: false,
-                        flushed: false
+                        flushed: false,
+                        window_seconds: 1,
+                        last_command: Instant::now(),
+                        commands_read: 0
                     };
                     let mut first = String::new();
                     let mut tries = 0;
@@ -2815,7 +3141,7 @@ fn start_hello_answering_fake(host: String, port: i64, session: String, reply_no
     // `hello` is NOT our daemon, which `handshake.rs:424` (the nonce echo)
     // and `handshake.rs:427` (the CLAIMED version) each catch.
     let spec = ListenerSpec { host: host.to_string(), port: port, session: session.to_string(), log_path: String::new(), answers_hello: true, reply_nonce: reply_nonce.to_string(), hello_version: hello_version };
-    std::thread::spawn(|| -> () { listener_work(spec) });
+    start_listening_fake(spec);
 }
 
 #[test]
@@ -2828,7 +3154,7 @@ fn a_hello_answer_echoing_another_nonce_is_refused_as_not_our_daemon() {
     // hands out NO pair. Pinning it HERE is what makes the refusal of the
     // ECHO belong to this row's gate: the check itself lives in `proto`,
     // but the OUTCOME the interface reports is this module's.
-    let port = free_port(57001);
+    let port = free_port(57801);
     let asked = "6f2c1a48e0b7d9c3".to_string();
     let foreign = "11ab2233cc4455dd".to_string();
     start_hello_answering_fake("127.0.0.1".to_string(), port, "core-6f2c".to_string(), foreign.to_string(), PROTOCOL_VERSION);
@@ -2838,8 +3164,8 @@ fn a_hello_answer_echoing_another_nonce_is_refused_as_not_our_daemon() {
             assert!(at == endpoint_text("127.0.0.1".to_string(), port));
             assert!(complaint.len() > 0);
         }
-        _ => {
-            println!("the wrong-nonce hello came down as something other than NotOurDaemon");
+        came_as => {
+            println!("the wrong-nonce hello came down as {actual:?}, other than the Attempt.NotOurDaemon refusal this row owes the interface", actual = came_as);
             assert!(false);
         }
     }
@@ -2858,7 +3184,7 @@ fn a_hello_answer_at_another_protocol_version_is_reported_as_the_spoken_version_
     // Asserting the reported FAILURE also pins the ATTEMPT, since `refuse`
     // maps EVERY other attempt to `NotAtEndpoint` (or, for nothing listening,
     // `SpawnedUnreachable`), so only `VersionProblem` can produce this text.
-    let port = free_port(57101);
+    let port = free_port(57901);
     let asked = "6f2c1a48e0b7d9c3".to_string();
     start_hello_answering_fake("127.0.0.1".to_string(), port, "core-6f2c".to_string(), String::new(), PROTOCOL_VERSION + 1);
     let endpoint = Endpoint { host: "127.0.0.1".to_string(), port: port };
@@ -2876,15 +3202,15 @@ fn a_hello_answer_at_another_protocol_version_is_reported_as_the_spoken_version_
                         assert!(spoke == PROTOCOL_VERSION);
                         assert!(at_text == endpoint_text("127.0.0.1".to_string(), port));
                     }
-                    _ => {
-                        println!("the version mismatch was reportable as not-our-daemon/occupied address");
+                    reported => {
+                        println!("the version mismatch was reportable as {actual:?}, not as not-our-daemon/occupied address", actual = reported);
                         assert!(false);
                     }
                 }
             }
         }
-        _ => {
-            println!("the version mismatch came down as something other than Attempt::VersionProblem");
+        came_as => {
+            println!("the version mismatch came down as {actual:?}, other than the Attempt.VersionProblem this row owes the interface", actual = came_as);
             assert!(false);
         }
     }
@@ -2922,7 +3248,7 @@ fn the_sink_latches_at_a_write_that_fails_on_a_socket_whose_reader_has_gone_away
     match TcpListener::bind(("127.0.0.1", port.try_into().unwrap_or(0))) {
         Err(_) => { assert!(false); }
         Ok(listener) => {
-            let spec = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: String::new(), wait_before_millis: 0, sends_version_request: false, sends_shutdown: false, closes_write: false, closes_read: true, hold_millis: 0 };
+            let spec = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: String::new(), wait_before_millis: 0, sends_version_request: false, sends_shutdown: false, closes_write: false, closes_read: true, write_after_connect_millis: 0, hold_millis: 0 };
             start_quiet_peer(spec);
             match listener.accept() {
                 Err(_) => { assert!(false); }
@@ -3014,14 +3340,15 @@ fn a_connection_that_never_sends_a_line_ends_the_session_as_the_connections_idle
     match TcpListener::bind(("127.0.0.1", port.try_into().unwrap_or(0))) {
         Err(_) => { assert!(false); }
         Ok(listener) => {
-            let spec = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: "6f2c1a48e0b7d9c3".to_string(), wait_before_millis: 0, sends_version_request: true, sends_shutdown: false, closes_write: false, closes_read: false, hold_millis: 4000 };
+            let spec = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: "6f2c1a48e0b7d9c3".to_string(), wait_before_millis: 0, sends_version_request: true, sends_shutdown: false, closes_write: false, closes_read: false, write_after_connect_millis: 0, hold_millis: 4000 };
             start_quiet_peer(spec);
             match listener.accept() {
                 Err(_) => { assert!(false); }
                 Ok(pair) => {
                     let mut nowhere = interpret::wired_nowhere();
                     let session_text = "core-6f2c".to_string();
-                    match serve_one_connection(pair.0, 1, &session_text, &mut nowhere) {
+                    let served = serve_one_connection(pair.0, 1, &session_text, &mut nowhere);
+                    match served.0 {
                         SessionEnd::IdleTimeout => { }
                         _ => {
                             println!("the quiet connection ended otherwise than SessionEnd::IdleTimeout");
@@ -3106,9 +3433,9 @@ fn a_quiet_connection_ends_the_daemon_through_the_idle_timeout_arm_of_the_accept
     match TcpListener::bind(("127.0.0.1", port.try_into().unwrap_or(0))) {
         Err(_) => { assert!(false); }
         Ok(listener) => {
-            let quiet = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: nonce.to_string(), wait_before_millis: 0, sends_version_request: true, sends_shutdown: false, closes_write: false, closes_read: false, hold_millis: 5000 };
+            let quiet = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: nonce.to_string(), wait_before_millis: 0, sends_version_request: true, sends_shutdown: false, closes_write: false, closes_read: false, write_after_connect_millis: 0, hold_millis: 5000 };
             start_quiet_peer(quiet);
-            let bye = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: nonce.to_string(), wait_before_millis: 500, sends_version_request: true, sends_shutdown: true, closes_write: true, closes_read: false, hold_millis: 0 };
+            let bye = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: nonce.to_string(), wait_before_millis: 500, sends_version_request: true, sends_shutdown: true, closes_write: true, closes_read: false, write_after_connect_millis: 0, hold_millis: 0 };
             start_quiet_peer(bye);
             let mut nowhere = interpret::wired_nowhere();
             match serve_daemon(&listener, &dir, 2, &mut nowhere, "core-6f2c".to_string()) {
@@ -3142,63 +3469,347 @@ fn a_quiet_connection_ends_the_daemon_through_the_idle_timeout_arm_of_the_accept
     }
 }
 
-#[test]
-fn the_accept_loop_idle_clock_starts_over_after_a_connection_is_served() {
-    // ROUTE 3 — `waited = 0;` of [`serve_daemon`]. The clock counts
-    // MILLISECONDS WAITED with NO connection in hand, and "WITHOUT
-    // COMMANDS" RESTARTS that count once a connection HAS been served: an
-    // interface arriving INSIDE the RESET window but OUTSIDE ONE
-    // uninterrupted window from the START of the daemon is the OBSERVABLE
-    // difference. With the window of 4 SECONDS: the FIRST interface shows up
-    // at 2.5 SECONDS (the clock has counted 2500 of the 4000 ms) and ENDS at
-    // end-of-input, so the reset build is STILL ALIVE at 5.5 SECONDS when the
-    // SECOND interface sends `shutdown`; a clock that never RESETS has ALREADY
-    // EXITED AT 4 SECONDS and the exit it reports is `IdleExit`. THE MARGINS
-    // on both sides are 1 SECONDS against a 250 ms poll, so the test STAYS
-    // RELIABLE under `RUST_TEST_THREADS=8`.
-    let dir = scratch_dir("the_accept_loop_idle_clock_starts_over_after_a_connection_is_served".to_string());
-    let port = free_port(57301);
+
+// ---------------------------------------------------------------------------
+// 3.6d: the ONE shared idle window of user decision 39
+// ---------------------------------------------------------------------------
+
+/// The shape of one fake interface of the SHARED-WINDOW tests below, as DATA
+/// for [`start_quiet_peer`]: WHEN it shows up, WHAT command lines it sends,
+/// whether it CLOSES its write end (a `false` means its session can ONLY end
+/// on its READ deadline), and how long it then HOLDS the socket OPEN. Bundled
+/// in a STRUCT because of this toolchain's [`std::thread::spawn`] fact (see
+/// [`QuietPeerSpec`]).
+#[cfg(test)]
+struct PeerShape {
+    pub wait_before_millis: i64,
+    pub sends_version_request: bool,
+    pub sends_shutdown: bool,
+    pub closes_write: bool,
+    pub hold_millis: i64,
+    pub write_after_connect_millis: i64
+}
+
+#[cfg(test)]
+fn quiet_shape(port: i64, nonce: String, shape: PeerShape) -> QuietPeerSpec {
+    return QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: nonce.to_string(), wait_before_millis: shape.wait_before_millis, sends_version_request: shape.sends_version_request, sends_shutdown: shape.sends_shutdown, closes_write: shape.closes_write, closes_read: false, write_after_connect_millis: shape.write_after_connect_millis, hold_millis: shape.hold_millis };
+}
+
+/// Drive ONE [`serve_daemon`] call of a GIVEN window against TWO interfaces and
+/// report the exit PLUS how long the daemon LIVED, measured from the moment
+/// BEFORE the accept loop started. EVERY exit path of the daemon also REMOVES
+/// the lock file (`data-files.md:143`), which is asserted HERE so each test
+/// below only has to state WHICH exit it expects. THE wall-clock length is
+/// what 3.6c could not keep under ONE window: its `waited = 0;` reset plus a
+/// FULL `idle_seconds` read deadline made the tail after the last command
+/// line ~2x the timeout (~30 MINUTES of `state/core.lock` at the documented
+/// default), and decision 39 chose the reading in which that is IMPOSSIBLE.
+#[cfg(test)]
+fn shared_window_run(dir_name: String, base: i64, window_seconds: i64, first: PeerShape, second: PeerShape) -> (DaemonExit, i64) {
+    let dir = scratch_dir(dir_name.to_string());
+    let port = free_port(base);
     let nonce = "6f2c1a48e0b7d9c3".to_string();
-    let record = LockRecord { address: endpoint_text("127.0.0.1".to_string(), port), nonce: nonce.to_string() };
-    match write_lock(&dir, &record) {
-        Err(_) => { assert!(false); }
+    match write_lock(&dir, &LockRecord { address: endpoint_text("127.0.0.1".to_string(), port), nonce: nonce.to_string() }) {
+        Err(_) => { println!("the shared-window test could not write its lock file in its scratch dir at port [{at}]", at = port.to_string()); cleanup_scratch(&dir); assert!(false); }
         Ok(_) => { }
     }
     match TcpListener::bind(("127.0.0.1", port.try_into().unwrap_or(0))) {
-        Err(_) => { assert!(false); }
+        Err(_) => {
+            // A PORT ANOTHER TEST OF THIS MODULE IS STILL HOLDING: the bases of
+            // [`free_port`] and of [`shared_window_run`] MUST BE PAIRWISE
+            // DISTINCT, because the suite runs these tests AT THE SAME TIME
+            // (`nproc` of them on this box) and their listeners OVERLAP.
+            println!("the shared-window daemon could not bind its own listener at port [{at}]: another test of this module still holds that port", at = port.to_string());
+            let lost = remove_lock(&dir);
+            cleanup_scratch(&dir);
+            assert!(false);
+            return (DaemonExit::ListenerBroken("this test could not bind its own listener".to_string(), lost), 0);
+        }
         Ok(listener) => {
-            let first = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: nonce.to_string(), wait_before_millis: 2500, sends_version_request: true, sends_shutdown: false, closes_write: true, closes_read: false, hold_millis: 0 };
-            start_quiet_peer(first);
-            let second = QuietPeerSpec { host: "127.0.0.1".to_string(), port: port, nonce: nonce.to_string(), wait_before_millis: 5500, sends_version_request: true, sends_shutdown: true, closes_write: true, closes_read: false, hold_millis: 0 };
-            start_quiet_peer(second);
+            start_quiet_peer(quiet_shape(port, nonce.to_string(), first));
+            start_quiet_peer(quiet_shape(port, nonce.to_string(), second));
             let mut nowhere = interpret::wired_nowhere();
-            match serve_daemon(&listener, &dir, 4, &mut nowhere, "core-6f2c".to_string()) {
-                DaemonExit::ShutdownExit(removal) => {
-                    match removal {
-                        Removal::Removed => { }
-                        _ => {
-                            println!("the shutdown exit did not report the removal");
-                            assert!(false);
-                        }
-                    }
-                }
-                DaemonExit::IdleExit(_) => {
-                    println!("the daemon exited idle WHILE an interface was waiting INSIDE the reset window: the accept-loop clock never restarted");
-                    assert!(false);
-                }
-                _ => {
-                    println!("the daemon came down otherwise than ShutdownExit");
-                    assert!(false);
-                }
-            }
+            let started = Instant::now();
+            let exit = serve_daemon(&listener, &dir, window_seconds, &mut nowhere, "core-6f2c".to_string());
+            let spent = millis_between(started, Instant::now());
             match read_lock(&dir) {
                 LockReading::Absent => { }
-                _ => {
-                    println!("the lock file survived the shutdown exit");
-                    assert!(false);
-                }
+                _ => { println!("the lock file survived the exit of the shared-window daemon"); cleanup_scratch(&dir); assert!(false); }
             }
             cleanup_scratch(&dir);
+            return (exit, spent);
         }
     }
+}
+
+#[cfg(test)]
+fn write_scratch_config(dir: &std::path::PathBuf, text: String) {
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), text) {
+        Err(_) => { cleanup_scratch(dir); assert!(false); }
+        Ok(_) => { }
+    }
+}
+
+#[test]
+fn an_interface_that_arrives_without_reading_a_command_line_never_extends_the_window() {
+    // THE TEST 3.6d INVERTS: 3.6c pinned the accept-boundary reading of the
+    // OPEN question with `the_accept_loop_idle_clock_starts_over_after_a_connection_is_served`
+    // (same window, same interfaces, expects `ShutdownExit`), and the USER chose
+    // option A (decision 39): "15 minutes WITHOUT commands" of
+    // `core-protocol.md:16` is measured from the last COMMAND LINE read ANYWHERE,
+    // so an interface merely ARRIVING restarts NOTHING and this daemon is
+    // ALREADY GONE when its second interface shows up. WINDOW 6 SECONDS: the
+    // FIRST interface ARRIVES at 3 s and sends NOTHING (it reads no command
+    // line, so its session contributes NOTHING to the clock beyond its own
+    // length); a second one ARRIVES at 8 s carrying `shutdown` and is NEVER
+    // ACCEPTED, because the window ran out at 6 s — 2 s of margin. MUTANT:
+    // putting the arrival reset back spends the clock from that 3 s ARRIVAL,
+    // so the daemon is alive to 8 s (1 s of margin inside its own extended
+    // window), the shutdown interface is SERVED, and the exit is ShutdownExit
+    // ~8.1 s, which the 7300 ms bound below refuses as well. Both margins
+    // stand AGAINST the 250 ms accept poll of [`serve_daemon`], and the
+    // interface's ARRIVAL is anchored to the CALLER's clock (see
+    // [`QuietPeerJob`]), so thread-start latency can only make the SECOND
+    // interface LATE, NEVER EARLY.
+    let ran = shared_window_run("an_interface_that_arrives_without_reading_a_command_line_never_extends_the_window".to_string(), 57301, 6, PeerShape { wait_before_millis: 3000, write_after_connect_millis: 0, sends_version_request: false, sends_shutdown: false, closes_write: true, hold_millis: 0 }, PeerShape { wait_before_millis: 8000, write_after_connect_millis: 0, sends_version_request: true, sends_shutdown: true, closes_write: true, hold_millis: 0 });
+    match ran.0 {
+        DaemonExit::IdleExit(removal) => {
+            match removal {
+                Removal::Removed => { }
+                _ => { println!("the shared-window idle exit did not report the removal of the lock"); assert!(false); }
+            }
+        }
+        DaemonExit::ShutdownExit(_) => { println!("an interface that ARRIVED after the window had already run out was SERVED: arriving RESTARTED the idle clock, which decision 39 forbids"); assert!(false); }
+        came_as => { println!("the daemon came down as {actual:?}, otherwise than on the shared idle window", actual = came_as); assert!(false); }
+    }
+    if ran.1 < 5800 || ran.1 > 7300 { println!("the daemon lived {ms} ms on a 6 SECOND window an interface ARRIVED inside: the arrival EXTENDED it", ms = ran.1.to_string()); assert!(false); }
+}
+
+#[test]
+fn a_session_that_reads_no_command_line_consumes_its_whole_length_of_the_window() {
+    // Clause (i): the interface ARRIVES at 2.5 s of the 6 SECOND window, sends
+    // NOTHING AT ALL, and holds its socket OPEN silently for 3 SECONDS — so
+    // the SESSION is 3 SECONDS LONG and ends at EOF, reading no command line,
+    // which makes its WHOLE length the silence the shared clock must LOSE
+    // ([`SessionSilence.Silent]). The window is therefore spent at ~6 s (the
+    // 2.5 s the ACCEPT loop polled PLUS the 3 s of silence) and the `shutdown`
+    // interface arriving at 7.5 s is NEVER served — 1.5 s of margin. MUTANT:
+    // ignoring what the session REPORTED and treating every session as if it
+    // had read a command line (`since_command_ms` SET to the silence instead of
+    // ADDING it to the time ALREADY counted) leaves the clock at 3 SECONDS at
+    // t=5.5, so the interface at 7.5 s IS ACCEPTED (1 s of margin inside the
+    // mutant's extended window) and the exit becomes ShutdownExit ~7.6 s,
+    // which the 7300 ms bound below refuses as well.
+    let ran = shared_window_run("a_session_that_reads_no_command_line_consumes_its_whole_length_of_the_window".to_string(), 57201, 6, PeerShape { wait_before_millis: 2500, write_after_connect_millis: 0, sends_version_request: false, sends_shutdown: false, closes_write: false, hold_millis: 3000 }, PeerShape { wait_before_millis: 7500, write_after_connect_millis: 0, sends_version_request: true, sends_shutdown: true, closes_write: true, hold_millis: 0 });
+    match ran.0 {
+        DaemonExit::IdleExit(removal) => {
+            match removal {
+                Removal::Removed => { }
+                _ => { println!("the shared-window idle exit did not report the removal of the lock"); assert!(false); }
+            }
+        }
+        DaemonExit::ShutdownExit(_) => { println!("the daemon lived on past the window a SILENT session had used up: the silence that session left was NOT charged to the shared clock"); assert!(false); }
+        came_as => { println!("the daemon came down as {actual:?}, otherwise than on the shared idle window", actual = came_as); assert!(false); }
+    }
+    if ran.1 < 5800 || ran.1 > 7300 { println!("the daemon lived {ms} ms after the window was already spent by a session that read no command", ms = ran.1.to_string()); assert!(false); }
+}
+
+#[test]
+fn a_session_that_used_its_window_leaves_only_the_remainder_for_the_next_connection() {
+    // Clause (ii): the 30-MINUTE TAIL MUST BE IMPOSSIBLE. WINDOW 6 SECONDS:
+    // the FIRST interface arrives IMMEDIATELY, reads a `version` COMMAND LINE
+    // (the clock RESTARTS from that line) and then sits SILENT until its socket
+    // drops at 4 s, so the session reports [`SessionSilence.Restarted`] of
+    // ~4 SECONDS; the NEXT interface arrives at 4.3 s (0.3 s after that drop,
+    // which the 250 ms accept poll absorbs) and sends NOTHING, and IT holds
+    // its socket OPEN to ~9.3 s so ONLY the READ DEADLINE it was GIVEN can
+    // end the session — `(idle_millis - since_command_ms) / 1000` of 3.6d,
+    // floored to ONE SECOND — which makes the daemon exit idle at ~5.4 s, i.e.
+    // ONE window after the last command, NEVER ~TWO. A connection handed the
+    // FULL window would keep reading to ~10.4 s; the 8000 ms bound below is
+    // what that mutant trips on, 2.3 s of margin, while 5100 ms is what a
+    // connection handed NO window at all would trip on.
+    let ran = shared_window_run("a_session_that_used_its_window_leaves_only_the_remainder_for_the_next_connection".to_string(), 57101, 6, PeerShape { wait_before_millis: 0, write_after_connect_millis: 0, sends_version_request: true, sends_shutdown: false, closes_write: false, hold_millis: 4000 }, PeerShape { wait_before_millis: 4300, write_after_connect_millis: 0, sends_version_request: false, sends_shutdown: false, closes_write: false, hold_millis: 5000 });
+    match ran.0 {
+        DaemonExit::IdleExit(removal) => {
+            match removal {
+                Removal::Removed => { }
+                _ => { println!("the idle exit did not report the removal of the lock"); assert!(false); }
+            }
+        }
+        came_as => { println!("the daemon came down as {actual:?}, otherwise than idle", actual = came_as); assert!(false); }
+    }
+    if ran.1 < 5100 || ran.1 > 8000 { println!("the daemon lived {ms} ms after its last command line on a 6 SECOND window: a late connection was handed the FULL window, not the remainder", ms = ran.1.to_string()); assert!(false); }
+}
+
+#[test]
+fn a_command_line_read_inside_a_session_restarts_the_window_of_that_connection() {
+    // Clause (iii): a COMMAND LINE read INSIDE a session DOES restart that
+    // session's window, because [`StreamText.read_text`] refreshes
+    // `last_command` and the socket deadline is RE-ARMED to the window's
+    // REMAINDER before EVERY blocking read. THE interface ARRIVES and is
+    // ACCEPTED AT ONCE (window 6 SECONDS) but writes its FIRST command line
+    // only 3 SECONDS later (`write_after_connect_millis` — the ONLY way to get
+    // a COMMAND LINE into the MIDDLE of a session), then holds its socket OPEN
+    // until 7.5 s. Re-armed from the line read at t=3 s the deadline of THAT
+    // session runs to 9 s, so the session reaches EOF at 7.5 s (1.5 s of
+    // margin) and charges [`SessionSilence.Restarted`] of 4.5 SECONDS to the
+    // shared clock, and the `shutdown` interface arriving at 7.8 s IS SERVED
+    // inside the re-armed window (1.2 s before that window would run out, and
+    // 0.3 s AFTER the EOF that made the first session end, so it could not be
+    // ACCEPTED before the first session is through with). WITHOUT the re-arm
+    // the deadline of the session would still be 6 SECONDS from its START,
+    // the read would expire at ~6 s — BEFORE that interface even ARRIVES — and
+    // the exit would be `IdleExit`, which is what the assertion below refuses;
+    // the 7400 ms bound refuses it too.
+    let ran = shared_window_run("a_command_line_read_inside_a_session_restarts_the_window_of_that_connection".to_string(), 57001, 6, PeerShape { wait_before_millis: 0, write_after_connect_millis: 3000, sends_version_request: true, sends_shutdown: false, closes_write: false, hold_millis: 4500 }, PeerShape { wait_before_millis: 7800, write_after_connect_millis: 0, sends_version_request: true, sends_shutdown: true, closes_write: true, hold_millis: 0 });
+    match ran.0 {
+        DaemonExit::ShutdownExit(removal) => {
+            match removal {
+                Removal::Removed => { }
+                _ => { println!("the shutdown exit did not report the removal of the lock"); assert!(false); }
+            }
+        }
+        DaemonExit::IdleExit(_) => { println!("the session died on the deadline it was handed at accept time: reading a COMMAND LINE inside the session did NOT restart its window"); assert!(false); }
+        came_as => { println!("the daemon came down as {actual:?}, otherwise than on the shutdown command", actual = came_as); assert!(false); }
+    }
+    if ran.1 < 7400 || ran.1 > 9800 { println!("the daemon lived {ms} ms: the command line read INSIDE the session did not restart its window, or the daemon outlived it", ms = ran.1.to_string()); assert!(false); }
+}
+
+#[test]
+fn a_late_connection_gets_the_remainder_of_the_window_as_its_first_read_deadline() {
+    // Clause (iv): the FIRST read deadline of a connection ACCEPTED LATE is
+    // the REMAINDER, NOT the full window. The interface ARRIVES at 4 s of the
+    // 6 SECOND window and sends NOTHING, so ONLY its READ deadline can end
+    // the session — IT holds its socket OPEN to 10 s, so NOTHING else can —
+    // and the remainder is 2 SECONDS, so the exit lands at ~6 s. The `shutdown`
+    // interface arriving at 7.5 s is NEVER served (1.5 s of margin). MUTANT:
+    // handing every connection the FULL `idle_seconds` deadline keeps THAT
+    // read going until ~10 s, which the 9000 ms bound below refuses (1 s of
+    // margin), and 5700 ms is what a connection handed LESS than the
+    // remainder would trip on.
+    let ran = shared_window_run("a_late_connection_gets_the_remainder_of_the_window_as_its_first_read_deadline".to_string(), 56901, 6, PeerShape { wait_before_millis: 4000, write_after_connect_millis: 0, sends_version_request: false, sends_shutdown: false, closes_write: false, hold_millis: 6000 }, PeerShape { wait_before_millis: 7500, write_after_connect_millis: 0, sends_version_request: true, sends_shutdown: true, closes_write: true, hold_millis: 0 });
+    match ran.0 {
+        DaemonExit::IdleExit(removal) => {
+            match removal {
+                Removal::Removed => { }
+                _ => { println!("the idle exit did not report the removal of the lock"); assert!(false); }
+            }
+        }
+        came_as => { println!("the daemon came down as {actual:?}, otherwise than idle", actual = came_as); assert!(false); }
+    }
+    if ran.1 < 5700 || ran.1 > 9000 { println!("a connection accepted with 2 SECONDS LEFT lived {ms} ms: its first read deadline was the FULL window, not the remainder", ms = ran.1.to_string()); assert!(false); }
+}
+
+#[test]
+fn the_idle_timeout_key_is_applied_in_both_spellings_and_absent_means_the_default() {
+    // User decision 40: `core.idle_timeout` (integer SECONDS, `data-files.md:147`)
+    // is the documented spelling of `core-protocol.md:16`'s "configurable".
+    // A NON-DEFAULT value must be APPLIED in BOTH spellings `data-files.md:149`
+    // documents (`basic_toml` reads the DOTTED key into a `core` TABLE), and
+    // an ABSENT key must mean [`DEFAULT_IDLE_SECONDS`] = 900 = the 15 MINUTES
+    // the doc fixes.
+    let dir = scratch_dir("the_idle_timeout_key_is_applied_in_both_spellings_and_absent_means_the_default".to_string());
+    // 1. THE key is ABSENT, another `core` key is PRESENT: the DEFAULT, and
+    //    NOTHING complained.
+    write_scratch_config(&dir, "core.address = \"127.0.0.1:47011\"\n".to_string());
+    match crate::technical::transport_cfg::idle_timeout_or_default(&dir) {
+        (held_seconds, held_issues) => {
+            if held_seconds != DEFAULT_IDLE_SECONDS || held_issues.len() != 0 || DEFAULT_IDLE_SECONDS != 900 { println!("an ABSENT core.idle_timeout did not mean the 900 seconds of the doc: {seen}", seen = held_seconds.to_string()); cleanup_scratch(&dir); assert!(false); }
+        }
+    }
+    // 2. THE DOTTED SPELLING CARRIES a NON-DEFAULT value.
+    write_scratch_config(&dir, "core.address = \"127.0.0.1:47011\"\ncore.idle_timeout = 7\n".to_string());
+    match crate::technical::transport_cfg::idle_timeout_or_default(&dir) {
+        (held_seconds, held_issues) => {
+            if held_seconds != 7 || held_issues.len() != 0 { println!("the dotted spelling did not APPLY core.idle_timeout = 7, it read {seen}", seen = held_seconds.to_string()); cleanup_scratch(&dir); assert!(false); }
+        }
+    }
+    // 3. THE `[core]` TABLE SPELLING of the SAME key.
+    write_scratch_config(&dir, "[core]\naddress = \"127.0.0.1:47011\"\nidle_timeout = 11\n".to_string());
+    match crate::technical::transport_cfg::idle_timeout_or_default(&dir) {
+        (held_seconds, held_issues) => {
+            if held_seconds != 11 || held_issues.len() != 0 { println!("the [core] table spelling did not APPLY idle_timeout = 11, it read {seen}", seen = held_seconds.to_string()); cleanup_scratch(&dir); assert!(false); }
+        }
+    }
+    cleanup_scratch(&dir);
+}
+
+#[test]
+fn an_idle_timeout_key_of_the_wrong_type_zero_or_negative_is_a_typed_issue_never_a_default() {
+    // The `ConfigIssue` rule of `transport_cfg`'s module doc applied to the
+    // new key: a key PRESENT with the WRONG type, a ZERO (an instant idle
+    // window: the daemon would exit before any interface reached it) or a
+    // NEGATIVE value is refused with a typed complaint NAMING the key, and
+    // NEVER quietly defaulted.
+    let dir = scratch_dir("an_idle_timeout_key_of_the_wrong_type_zero_or_negative_is_a_typed_issue_never_a_default".to_string());
+    let mut refused: i64 = 0;
+    for held in ["core.idle_timeout = \"900\"\n".to_string(), "core.idle_timeout = 0\n".to_string(), "core.idle_timeout = -5\n".to_string()].to_vec() {
+        write_scratch_config(&dir, held.to_string());
+        match crate::technical::transport_cfg::idle_timeout_or_default(&dir) {
+            (held_seconds, held_issues) => {
+                if held_issues.len() != 1 { println!("the idle timeout key [{text}] was NOT refused: it read {seen} with {count} complaint(s)", text = held, seen = held_seconds.to_string(), count = held_issues.len().to_string()); cleanup_scratch(&dir); assert!(false); }
+                match &held_issues[0] {
+                    ConfigIssue::WrongType(text) => {
+                        if !text.contains("idle_timeout") { println!("the typed complaint [{said}] does not NAME the key", said = text); cleanup_scratch(&dir); assert!(false); }
+                        refused = refused + 1;
+                    }
+                    _ => { println!("the refusal of [{text}] is not the WrongType that names the key", text = held); cleanup_scratch(&dir); assert!(false); }
+                }
+            }
+        }
+    }
+    if refused != 3 { println!("only {count} of the three bad idle_timeout spellings were refused", count = refused.to_string()); cleanup_scratch(&dir); assert!(false); }
+    cleanup_scratch(&dir);
+}
+
+#[test]
+fn the_idle_timeout_flag_of_the_daemon_argv_beats_the_configuration_key() {
+    // The PRECEDENCE user decision 40 fixes: the `--idle-timeout=` flag of the
+    // daemon's OWN argv OVERRIDES the key (`spawn_arguments` hands the RESOLVED
+    // value down as that very flag, so a parent and the child it starts agree),
+    // and what the flag leaves unset falls back to the key. A key the
+    // CONFIGURATION REFUSES is a typed refusal of the whole daemon settings,
+    // NEVER a silent default — but an EXPLICIT flag still wins over a REFUSED
+    // key, exactly as an explicit `--address=` still wins over a refused
+    // `core.address`.
+    let dir = scratch_dir("the_idle_timeout_flag_of_the_daemon_argv_beats_the_configuration_key".to_string());
+    write_scratch_config(&dir, "core.address = \"127.0.0.1:47013\"\ncore.idle_timeout = 3\n".to_string());
+    let dir_text = dir.display().to_string();
+    // 1. NO flag: THE KEY, not the default.
+    match daemon_settings([DAEMON_FLAG.to_string(), format!("{flag}{value}", flag = DATA_DIR_FLAG, value = dir_text)].to_vec()) {
+        (Some(settings), held_issues) => {
+            if settings.idle_seconds != 3 || held_issues.len() != 0 { println!("the --serve branch resolved {seen} idle seconds while the key says 3: the key is NOT read", seen = settings.idle_seconds.to_string()); cleanup_scratch(&dir); assert!(false); }
+        }
+        (None, held_issues) => { println!("a VALID core.idle_timeout refused the daemon settings with {count} issue(s)", count = held_issues.len().to_string()); cleanup_scratch(&dir); assert!(false); }
+    }
+    // 2. THE FLAG WINS over a perfectly GOOD key.
+    match daemon_settings([DAEMON_FLAG.to_string(), format!("{flag}{value}", flag = DATA_DIR_FLAG, value = dir_text).to_string(), format!("{flag}{value}", flag = IDLE_FLAG, value = "7".to_string())].to_vec()) {
+        (Some(settings), held_issues) => {
+            if settings.idle_seconds != 7 || held_issues.len() != 0 { println!("the --idle-timeout= flag did not BEAT the key: resolved {seen}", seen = settings.idle_seconds.to_string()); cleanup_scratch(&dir); assert!(false); }
+        }
+        (None, held_issues) => { println!("the flag against a good key was refused with {count} issue(s)", count = held_issues.len().to_string()); cleanup_scratch(&dir); assert!(false); }
+    }
+    // 3. A REFUSED key with NO flag: typed refusal, NEVER the default.
+    write_scratch_config(&dir, "core.address = \"127.0.0.1:47013\"\ncore.idle_timeout = 0\n".to_string());
+    match daemon_settings([DAEMON_FLAG.to_string(), format!("{flag}{value}", flag = DATA_DIR_FLAG, value = dir_text)].to_vec()) {
+        (None, held_issues) => {
+            if held_issues.len() != 1 { println!("a ZERO core.idle_timeout produced {count} issue(s)", count = held_issues.len().to_string()); cleanup_scratch(&dir); assert!(false); }
+            match &held_issues[0] {
+                DaemonFlagIssue::ConfigRejected(rejected) => {
+                    if rejected.len() != 1 { println!("the refusal of the idle_timeout key is not the typed ConfigIssue list: {count}", count = rejected.len().to_string()); cleanup_scratch(&dir); assert!(false); }
+                }
+                _ => { println!("the refused idle_timeout key was reported as something other than the configuration's typed complaint"); cleanup_scratch(&dir); assert!(false); }
+            }
+        }
+        (Some(settings), _) => { println!("a ZERO core.idle_timeout was ACCEPTED as {seen} seconds instead of refused", seen = settings.idle_seconds.to_string()); cleanup_scratch(&dir); assert!(false); }
+    }
+    // 4. An EXPLICIT flag still resolves against the SAME REFUSED key.
+    match daemon_settings([DAEMON_FLAG.to_string(), format!("{flag}{value}", flag = DATA_DIR_FLAG, value = dir_text).to_string(), format!("{flag}{value}", flag = IDLE_FLAG, value = "7".to_string())].to_vec()) {
+        (Some(settings), held_issues) => {
+            if settings.idle_seconds != 7 || held_issues.len() != 0 { println!("the flag lost to a key the configuration REFUSES: {seen}", seen = settings.idle_seconds.to_string()); cleanup_scratch(&dir); assert!(false); }
+        }
+        (None, held_issues) => { println!("an EXPLICIT --idle-timeout= was refused because the key is bad: {count} issue(s)", count = held_issues.len().to_string()); cleanup_scratch(&dir); assert!(false); }
+    }
+    cleanup_scratch(&dir);
 }

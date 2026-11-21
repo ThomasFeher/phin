@@ -114,6 +114,16 @@ pub const ADDRESS_TABLE_KEY: &str = "address";
 /// The `port` key inside the `core` table.
 pub const PORT_TABLE_KEY: &str = "port";
 
+/// The `core.idle_timeout` key of the configuration (user decision 40
+/// closed the doc gap the OPEN question of 3.6c raised, and `data-files.md:147`
+/// now NAMES this key): the idle timeout of `core-protocol.md:16` as an
+/// INTEGER of SECONDS.
+pub const IDLE_KEY: &str = "core.idle_timeout";
+
+/// The `idle_timeout` key inside the `core` table the parser builds for the
+/// dotted key above.
+pub const IDLE_TABLE_KEY: &str = "idle_timeout";
+
 /// The length of the nonce of a daemon instance, in lowercase hex characters.
 /// The SHAPE rule itself lives in `proto::handshake::is_wellformed_nonce` (it
 /// is pinned there to the doc's example); this constant is the SAME LENGTH
@@ -226,6 +236,95 @@ pub enum ConfigIssue {
     WrongType(String),
     /// `core.port` is outside the range a listener can bind.
     PortOutOfRange(i64)
+}
+
+/// The idle timeout the CONFIGURATION fixes, in SECONDS (user decision 40:
+/// `core-protocol.md:16`'s "configurable, default 15 minutes without
+/// commands" is spelled by the key `core.idle_timeout` of
+/// `data-files.md:147`, and an ABSENT key means
+/// [`DEFAULT_IDLE_SECONDS`] of `transport.rs` = 900):
+///
+/// * SAME typed route as [`endpoint_from_config`]: `basic_toml` reads the DOTTED
+///   spelling of `data-files.md:149` into a `core` TABLE, so ONE lookup path
+///   serves BOTH spellings.
+/// * SAME `ConfigIssue` shape, and NOTHING ELSE defaults: a key PRESENT with
+///   the WRONG JSON type, a ZERO or a NEGATIVE value are typed complaints
+///   NAMING the key — an instant or a negative idle window would end the
+///   daemon before any interface could reach it, the rule
+///   `transport::DaemonFlagIssue.IdleTooSmall` already holds for the flag.
+/// * Only an ABSENT key, or an absent configuration FILE, means the default;
+///   an UNREADABLE file is [`ConfigIssue.NotReadable`], never a guess.
+///
+/// WHAT the key does NOT win: the `--idle-timeout=` flag of the daemon child
+/// OVERRIDES it (`transport::daemon_settings` reads the flag FIRST and calls
+/// THIS only for what the flag left unset), and
+/// `transport::spawn_arguments` hands that resolved value down as the flag
+/// either way, so a parent and the child it starts NEVER disagree.
+pub fn idle_timeout_or_default(data_dir: &std::path::Path) -> (i64, Vec::<ConfigIssue>) {
+    let path = data_dir.join(CONFIG_FILE_NAME.to_string());
+    match std::fs::read_to_string(path) {
+        Err(reason) => {
+            if reason.kind() == std::io::ErrorKind::NotFound {
+                return (crate::technical::transport::DEFAULT_IDLE_SECONDS, Vec::<ConfigIssue>::new());
+            }
+            let message = format!("{reason}");
+            return (crate::technical::transport::DEFAULT_IDLE_SECONDS, [ConfigIssue::NotReadable(message)].to_vec());
+        }
+        Ok(text) => {
+            match basic_toml::from_str::<Value>(&text) {
+                Err(reason) => {
+                    let mut where_text = String::new();
+                    match reason.line_col() {
+                        None => { }
+                        Some((line, column)) => { where_text = format!(" at line {line} column {column}"); }
+                    }
+                    let message = format!("{reason}");
+                    return (crate::technical::transport::DEFAULT_IDLE_SECONDS, [ConfigIssue::NotTOML(format!("{message}{where_text}"))].to_vec());
+                }
+                Ok(held) => {
+                    match held.as_object() {
+                        None => {
+                            return (crate::technical::transport::DEFAULT_IDLE_SECONDS, [ConfigIssue::WrongType(CONFIG_FILE_NAME.to_string())].to_vec());
+                        }
+                        Some(root) => {
+                            match root.get("core") {
+                                None => { return (crate::technical::transport::DEFAULT_IDLE_SECONDS, Vec::<ConfigIssue>::new()); }
+                                Some(held_section) => {
+                                    match held_section.as_object() {
+                                        None => {
+                                            return (crate::technical::transport::DEFAULT_IDLE_SECONDS, [ConfigIssue::WrongType("core".to_string())].to_vec());
+                                        }
+                                        Some(section) => {
+                                            match section.get(IDLE_TABLE_KEY) {
+                                                None => { return (crate::technical::transport::DEFAULT_IDLE_SECONDS, Vec::<ConfigIssue>::new()); }
+                                                Some(held_value) => {
+                                                    match held_value.as_i64() {
+                                                        None => {
+                                                            // A TEXT, a FLOAT or a BOOL where an INTEGER
+                                                            // of SECONDS belongs: the key is PRESENT, so it
+                                                            // must not read as absent.
+                                                            return (crate::technical::transport::DEFAULT_IDLE_SECONDS, [ConfigIssue::WrongType(IDLE_KEY.to_string())].to_vec());
+                                                        }
+                                                        Some(value) => {
+                                                            if value <= 0 {
+                                                                // ZERO or NEGATIVE: typed, never defaulted.
+                                                                return (crate::technical::transport::DEFAULT_IDLE_SECONDS, [ConfigIssue::WrongType(format!("{name} must be a POSITIVE number of seconds, saw {seen}", name = IDLE_KEY, seen = value.to_string()))].to_vec());
+                                                            }
+                                                            return (value, Vec::<ConfigIssue>::new());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The text a configuration key holds, [`None`] when the key is absent; a key

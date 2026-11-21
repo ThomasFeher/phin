@@ -904,3 +904,78 @@ fn two_live_interfaces_on_one_spawned_daemon_interleave_whole_command_by_whole_c
         }
     }
 }
+#[test]
+fn the_configured_idle_timeout_key_ends_a_spawned_daemon_child_at_that_length() {
+    // 3.6d (user decision 40) seen ACROSS A PROCESS BOUNDARY: the daemon child
+    // is started with NOTHING but `--serve` and `--data-dir=`, so the ONLY
+    // source of its idle timeout is the key `core.idle_timeout` of the
+    // `phin.toml` inside that data directory (`data-files.md:147`). NO
+    // interface ever connects, so it is the accept-loop clock of
+    // `serve_daemon` that ends the PROCESS, at ONE SECOND — while the
+    // 900-SECOND `DEFAULT_IDLE_SECONDS` (the 15 minutes without commands of
+    // `core-protocol.md:16`) would leave it alive long past the BOUNDED wait
+    // of `wait_for_daemon_exit` (20 SECONDS), which then reports false and
+    // THIS test FAILS instead of hanging (the NO-test-may-HANG rule of 3.6c;
+    // `child.wait()` is only reached once the process has ALREADY exited by
+    // ITSELF, so it merely REAPS a zombie). What a child is HANDED the RESOLVED
+    // value as (`--idle-timeout=`, the flag `spawn_arguments` writes) and the
+    // PRECEDENCE that flag keeps over the key are pinned in
+    // `transport.rs::the_idle_timeout_flag_of_the_daemon_argv_beats_the_configuration_key`.
+    let dir = scratch("the_configured_idle_timeout_key_ends_a_spawned_daemon_child_at_that_length".to_string());
+    let port = free_port(41301);
+    // THE HOST of the configuration is `localhost`, NOT the default, exactly
+    // as the other live tests of this file pin it end-to-end.
+    match std::fs::write(&dir.join("phin.toml"), format!("core.address = \"localhost:{at}\"\ncore.idle_timeout = 1\n", at = port.to_string())) {
+        Err(_) => { cleanup(&dir); assert!(false); }
+        Ok(_) => { }
+    }
+    let argv = [core::technical::transport::DAEMON_FLAG.to_string(), format!("{flag}{value}", flag = core::technical::transport::DATA_DIR_FLAG, value = dir.display().to_string())].to_vec();
+    match std::process::Command::new(&executable_path()).args(&argv).spawn() {
+        Err(_) => { cleanup(&dir); assert!(false); }
+        Ok(mut child) => {
+            // THE CHILD IS UP ONCE ITS LOCK FILE EXISTS, polled BOUNDED (160
+            // x 50 ms), the existing style of this file: WITHOUT that the
+            // bind-probe below could report a FREE port for a child that
+            // NEVER CAME UP and this test would pass for the WRONG REASON.
+            let mut up: bool = false;
+            let mut tries: i64 = 0;
+            while tries < 160 {
+                match core::technical::transport_cfg::read_lock(&dir) {
+                    core::technical::transport_cfg::LockReading::Read(_) => { up = true; }
+                    _ => { }
+                }
+                if up { break; }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                tries += 1;
+            }
+            if !up {
+                stop_daemon(&mut child);
+                cleanup(&dir);
+                assert!(false);
+            }
+            // THE KEY-DRIVEN IDLE EXIT OF THE CHILD ITSELF.
+            if !wait_for_daemon_exit(&child, "localhost".to_string(), port) {
+                stop_daemon(&mut child);
+                println!("a child configured by core.idle_timeout = 1 was STILL alive after the bounded 20 SECONDS: the key did not reach the daemon process");
+                cleanup(&dir);
+                assert!(false);
+            }
+            match child.wait() {
+                Err(_) => { cleanup(&dir); assert!(false); }
+                Ok(status) => {
+                    match status.code() {
+                        Some(held) => {
+                            if held != 0 { println!("the key-driven idle exit of the child was exit code {code}, not the clean 0 of main.rs", code = held.to_string()); cleanup(&dir); assert!(false); }
+                        }
+                        None => { println!("the child was ended by a signal, not by its own key-driven idle exit"); cleanup(&dir); assert!(false); }
+                    }
+                }
+            }
+            match core::technical::transport_cfg::read_lock(&dir) {
+                core::technical::transport_cfg::LockReading::Absent => { }
+                _ => { println!("the lock file survived the key-driven idle exit of the child"); cleanup(&dir); assert!(false); }
+            }
+            cleanup(&dir);
+        }
+    }
+}
