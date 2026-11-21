@@ -7,3 +7,4 @@ proto = { path = "../proto" }
 regex = "1.13.1"
 sha2 = "0.11.1"
 serde_json = "1.0"
+basic-toml = "0.1.10"

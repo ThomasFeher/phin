@@ -186,7 +186,7 @@ pub fn base_id_of_id(id: &str) -> String {
 
 /// The full lowercase hex digest of `payload` under SHA-256 — the same digest
 /// `hashlib.sha256` produces in the fixture generator, over the UTF-8 bytes.
-fn sha256_hex(payload: &str) -> String {
+pub fn sha256_hex(payload: &str) -> String {
     let digest = Sha256::digest(payload.as_bytes());
     let mut hex = String::new();
     for byte in digest.iter() {
@@ -197,7 +197,7 @@ fn sha256_hex(payload: &str) -> String {
 
 /// The first `count` characters of `text`; `text` is pure ASCII hex here, so a
 /// byte slice cannot split a character.
-fn first_chars(text: &str, count: usize) -> String {
+pub fn first_chars(text: &str, count: usize) -> String {
     return text[..count].to_string();
 }
 
