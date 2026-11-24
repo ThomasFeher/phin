@@ -9,9 +9,15 @@ that implements it.
 
 1. **One task at a time.** Work on the lowest-numbered unfinished task whose
    dependencies are all done. Do not combine tasks.
-2. **Task size.** A task produces at most ~150 lines of production code plus
-   its tests. If a task grows beyond that, stop and report; do not silently
-   expand it.
+2. **Task size.** A task is one deliverable with one success check (a command
+   or observable, here: `cargo test`) and one review pass. Size is a budget of
+   signals, not a line quota: the task should occupy a small share (ideally
+   10–20%) of a fresh implementer's context, touch usually 1–5 files (6+ →
+   split unless the change is mechanical), and fit its brief in one sitting.
+   ~150 changed lines of production code plus tests is a warning signal, not a
+   hard cap. If a task clearly outgrows these signals, split it into subtasks
+   that each pass these signals (keep the task's dependencies and acceptance
+   criteria intact); do not silently expand it.
 3. **Tests are mandatory and are written in the same task.** A task is not done
    if `cargo test` (workspace-wide) does not pass with new tests added for the
    new code. No task may be marked done with a red test.
