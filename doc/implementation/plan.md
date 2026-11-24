@@ -206,7 +206,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       PDF text extracted in reading order; two-column layout keeps numbers
       attached to the right row (assert on fixture values); missing `pdftotext`
       → typed error, not a panic; empty PDF → empty result. Est. 90 LOC.
-- [ ] **4.2 Bank statement parser (bank A)** — Files: `core/src/technical/
+- [x] **4.2 Bank statement parser (bank A)** — Files: `core/src/technical/
       parse_bank_a.rs` → `Vec<Transaction>`. Depends: 4.1, 1.1, 1.2, 1.3.
       Tests: all transactions of fixture A extracted with exact amounts and
       dates; a deliberately broken variant fixture reports a warning and still
