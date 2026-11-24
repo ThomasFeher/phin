@@ -8,7 +8,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 |----|--------|--------|--------------|
 | T1 | DONE | 1 | 98877af |
 | T2 | DONE | 2 | 64d3150 |
-| T3 | DOING | 0 | |
+| T3 | DONE | 1 | 020d522 |
+| T4 | DOING | 0 | |
 | T3 | TODO | 0 | |
 | T4 | TODO | 0 | |
 | T5 | TODO | 0 | |
@@ -28,6 +29,7 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - [reviewer] T2 code: interface shapes exact, no `#N` from the parser, no minor-unit re-scaling, four brief-named tests present, no panic path; dead-code nit at parse_bank_a.rs:222 (duplicate-token guard) - command output (cargo test -p core parse_bank_a -> 9 passed; build 0 warnings; workspace green)
 - [reviewer] cycle-2 T2: empty-counterparty rule applied everywhere a transaction is built; date-only candidate row takes the `next_back() -> None` arm and warns without panicking (reproduced with a scratch rustc program); parser never calls `occurrence_id`, so no `#N` can appear - command output (cargo test -p core parse_bank_a -> 9 passed; independent sha256 recomputation of all six ids)
 - [reviewer] T2 nit not blocking: `warnings[0].text.len() > 0` should be `!is_empty()` (repo has no clippy gate) - source (core/src/technical/parse_bank_a.rs:341)
+- [reviewer] T3 approved at cycle 1: interfaces exact, report/warning types imported from parse_bank_a (not duplicated), no shared generic parser, card-token policy (non-matching second token -> typed warning) reviewed and endorsed as correct for this scope - command output (cargo test -p core parse_bank_b -> 10 passed; sha256 recomputation of all 8 ids; build 0 warnings; workspace green)
 
 ## Decision log (implementation)
 | # | decision | rationale | decider (agent|user) | status (JUSTIFIED / NEEDS_USER / resolved) |
