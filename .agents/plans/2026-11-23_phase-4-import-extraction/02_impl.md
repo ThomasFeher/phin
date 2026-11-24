@@ -7,7 +7,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | id | status | cycles | commit (sha) |
 |----|--------|--------|--------------|
 | T1 | DONE | 1 | 98877af |
-| T2 | DOING | 2 | |
+| T2 | DONE | 2 | 64d3150 |
+| T3 | DOING | 0 | |
 | T3 | TODO | 0 | |
 | T4 | TODO | 0 | |
 | T5 | TODO | 0 | |
@@ -25,6 +26,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - [developer/reviewer] under decision 18 the bank A base ids are `1a0aa13ad9, 8111d8fe49, 59d934f85e, 3f77f63298, 845d4e59d4, 89e081d0a4` and bank B1 are `c402e912d8, 2085317984, ddbde11186, 58746a5f8f`; the CSV's `39945b2fed...`/`a86d11da9a...` come from the annotated counterparties - command output (python sha256, both variants)
 - [reviewer] `id.rs:203-228` recomputes ids FROM the CSV rows (self-consistent, no parser involved); but `id.rs:256,264-265,271,282,293,315-341` hard-code the literals `80c63211a8`/`39945b2fed` in committed Phase-2 tests, so regenerating the fixture counterparties would force edits to already-shipped tests - source (core/src/technical/id.rs)
 - [reviewer] T2 code: interface shapes exact, no `#N` from the parser, no minor-unit re-scaling, four brief-named tests present, no panic path; dead-code nit at parse_bank_a.rs:222 (duplicate-token guard) - command output (cargo test -p core parse_bank_a -> 9 passed; build 0 warnings; workspace green)
+- [reviewer] cycle-2 T2: empty-counterparty rule applied everywhere a transaction is built; date-only candidate row takes the `next_back() -> None` arm and warns without panicking (reproduced with a scratch rustc program); parser never calls `occurrence_id`, so no `#N` can appear - command output (cargo test -p core parse_bank_a -> 9 passed; independent sha256 recomputation of all six ids)
+- [reviewer] T2 nit not blocking: `warnings[0].text.len() > 0` should be `!is_empty()` (repo has no clippy gate) - source (core/src/technical/parse_bank_a.rs:341)
 
 ## Decision log (implementation)
 | # | decision | rationale | decider (agent|user) | status (JUSTIFIED / NEEDS_USER / resolved) |
