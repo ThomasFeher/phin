@@ -1,12 +1,12 @@
 # Implementation state
 Plan: ./01_plan.md (read-only, never edit)
 Plan format: detailed-v1
-VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d029e2c0f2ecd30 | plan commit: <pending>
+VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d029e2c0f2ecd30 | plan commit: 3c59a40
 
 ## Item state
 | id | status | cycles | commit (sha) |
 |----|--------|--------|--------------|
-| T1 | TODO | 0 | |
+| T1 | DOING | 0 | |
 | T2 | TODO | 0 | |
 | T3 | TODO | 0 | |
 | T4 | TODO | 0 | |

@@ -198,7 +198,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
 
 # Phase 4 — Import & Extraction
 
-- [ ] **4.1 `pdftotext -layout` call helper** — Files: `core/src/technical/
+- [x] **4.1 `pdftotext -layout` call helper** — Files: `core/src/technical/
       pdf_text.rs`. Calls the external `pdftotext -layout` (decision recorded in
       the architecture doc; native `pdfium-render` is the recorded alternative),
       returns text in reading order with columns preserved; detect a missing
