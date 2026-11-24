@@ -211,7 +211,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       Tests: all transactions of fixture A extracted with exact amounts and
       dates; a deliberately broken variant fixture reports a warning and still
       yields the parseable rows; running twice yields identical output. Est. 130 LOC.
-- [ ] **4.3 Bank statement parser (bank B)** — same as 4.2 for the second
+- [x] **4.3 Bank statement parser (bank B)** — same as 4.2 for the second
       fixture layout. Depends: 4.2. Tests: as above with fixture B. Est. 130 LOC.
 - [ ] **4.4 Importer host + plugin contract** — Files: `core/src/technical/
       importer_host.rs`. `probe` every configured importer (built-in and plugin
