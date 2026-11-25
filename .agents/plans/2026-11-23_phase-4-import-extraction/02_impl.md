@@ -11,7 +11,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | T3 | DONE | 1 | 020d522 |
 | T4 | DONE | 1 | f854349 |
 | T5 | DONE | 2 | 47f6eac |
-| T6 | REVIEW (reviewer not yet dispatched - run halted by user) | 1 | |
+| T6 | DONE | 2 | 69a0516 |
+| T7 | DOING | 0 | |
 | T7 | TODO | 0 | |
 | T8 | TODO | 0 | |
 | T9 | TODO | 0 | |
@@ -39,6 +40,9 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - [developer] T6 (uncommitted, awaiting review): `mbox.rs` split/un-escape/unfold/base64 + the 7 pinned tests; `BuiltInMbox` added to `builtin_importers()` (probe on `.mbox` extension only, `extract_transactions` returns zero transactions + the pinned `MBOX_NO_TRANSACTIONS` warning); fixtures regenerated with `X-Mozilla-Status` (0001 on paypal message 3) and the escaped `>From ` body line; `transactions.csv` byte-unchanged - command output (cargo test -p core -> 258 lib + 4 + 4, 0 failed; build 0 warnings; generate.py into two dirs is diff-identical)
 - [developer] the pinned test name `parse_rfc822_date` collides with the pub fn of the same name, so T6's tests live in a `#[cfg(test)] mod tests` submodule inside `mbox.rs` (the repo's only test submodule) and call `super::parse_rfc822_date` - source (core/src/technical/mbox.rs)
 - [orchestrator] the first T6 attempt was interrupted leaving a compile error (`mbox.rs:448` `&str` vs `str` compare) and zero tests; the orchestrator fixed the compare and the follow-up round added the tests and `BuiltInMbox` - command output (cargo build error text, then green)
+- [reviewer] T6 approved: byte offsets exact (three independent checks incl. a python offset cross-check), fixtures reproduce from generate.py (two regenerations byte-identical), README statements true, the three-entry builtin list is the pre-authorized T4 comment ('a third entry and nothing else changes') - command output (cargo test -p core mbox -> 11 passed; workspace green)
+- [reviewer] accepted wording deviations inherited by T7: `attachment_of` excludes ALL `text/*` parts (brief said 'non-text/plain'); `>From ` is un-escaped in the BODY region only (header lines are never escaped by mbox writers) - source (core/src/technical/mbox.rs:664, unescape_body)
+- [developer+reviewer] a pinned test name cannot equal a pinned pub fn name: T6's tests live in a `#[cfg(test)] mod tests` submodule (repo's only one) and call `super::parse_rfc822_date` - source (core/src/technical/mbox.rs)
 
 ## Decision log (implementation)
 | # | decision | rationale | decider (agent|user) | status (JUSTIFIED / NEEDS_USER / resolved) |
