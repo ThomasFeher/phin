@@ -219,7 +219,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       Depends: 3.1, 4.2, 4.3. Tests: a plugin that answers `probe: false` is
       never asked to extract; a plugin that exits non-zero → `error` event with
       plugin name, other importers still run; timeout kills plugin. Est. 140 LOC.
-- [ ] **4.5 mbox reader** — Files: `core/src/technical/mbox.rs`. Split on
+- [x] **4.5 mbox reader** — Files: `core/src/technical/mbox.rs`. Split on
       `^From ` lines, parse headers (`X-Mozilla-Status`), MIME parts, base64
       attachments. Depends: 0.3. Tests: fixture mbox yields exactly N messages;
       escaped `>From ` in body does not split; attachment decoded to bytes;

@@ -10,11 +10,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | T2 | DONE | 2 | 64d3150 |
 | T3 | DONE | 1 | 020d522 |
 | T4 | DONE | 1 | f854349 |
-| T5 | DOING | 0 | |
-| T3 | TODO | 0 | |
-| T4 | TODO | 0 | |
-| T5 | TODO | 0 | |
-| T6 | TODO | 0 | |
+| T5 | DONE | 2 | 47f6eac |
+| T6 | REVIEW (reviewer not yet dispatched - run halted by user) | 1 | |
 | T7 | TODO | 0 | |
 | T8 | TODO | 0 | |
 | T9 | TODO | 0 | |
@@ -35,10 +32,19 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - [reviewer] T4 contract conforms to the brief line by line; probe-then-extract proven with interior mutability (`extracts.get() == 0`); content-based probing and marker isolation verified; two nits (transaction-order assertion uses identical stub rows; PDF converted twice per file, sanctioned by the brief's probe rule) - command output (cargo test -p core importer_host -> 10 passed; build 0 warnings; workspace green)
 - [developer] (aborted T5 cycle-1 run, no files left in the tree) the plugin wire IS documented: `plugin-protocol.md:43-64` (`probe` req/resp), `:66-90` (`extract` req, `transactions` lines, `end` terminator), `:92-103` (`annotation` variant), `:127-137` (error line with `plugin` and `code`) - correction of an orchestrator misstatement made when re-dispatching; the T5 brief was right
 - [orchestrator] `doc/architecture/plugin-protocol.md` does contain the importer vocabulary (`probe`/`extract`/`transactions`/`end`) and the transaction object; the plugin protocol is a separate vocabulary from the core protocol and has no handshake gate - source (doc/architecture/plugin-protocol.md:1-103)
+- [developer] plugin wire rows carry `amount` as an INTEGER minor-unit count (`plugin-protocol.md:27-41`), so `transaction::from_stored` is the only legal constructor there; the brief's `from_parts` wording would re-scale (`money::parse("-3999")` -> `-399900`) - source (doc/architecture/plugin-protocol.md:27-41; core/src/domain/transaction.rs:83-88 INVARIANT)
+- [reviewer] `ExecImporter` probe can never fail by contract, so an unspawnable plugin would be invisible; discovery now reports `ConfigIssue::PluginNotFound` for a missing path (exists, not the exec bit) and the executable-bit check is handed to 4.8 - source (importer_host.rs exec_importers; plugin-protocol.md:13)
+- [reviewer] every child interaction in `ExecImporter` is bounded: probe/extract reads via `recv_timeout(timeout_secs)`, reap joins with `REAPER_GRACE_SECS = 2` then detaches, measured 1.02 s for a 1 s timeout test - command output (time cargo test -p core --lib fake_plugin_timeout_killed)
+- [reviewer] follow-ups handed to T9/4.8: executable-bit check for `plugins` entries; a shared non-blocking stderr pump (>64 KB stderr mid-run currently lands in `timed out`); per-line vs total plugin timeout budget
+- [developer] T6 (uncommitted, awaiting review): `mbox.rs` split/un-escape/unfold/base64 + the 7 pinned tests; `BuiltInMbox` added to `builtin_importers()` (probe on `.mbox` extension only, `extract_transactions` returns zero transactions + the pinned `MBOX_NO_TRANSACTIONS` warning); fixtures regenerated with `X-Mozilla-Status` (0001 on paypal message 3) and the escaped `>From ` body line; `transactions.csv` byte-unchanged - command output (cargo test -p core -> 258 lib + 4 + 4, 0 failed; build 0 warnings; generate.py into two dirs is diff-identical)
+- [developer] the pinned test name `parse_rfc822_date` collides with the pub fn of the same name, so T6's tests live in a `#[cfg(test)] mod tests` submodule inside `mbox.rs` (the repo's only test submodule) and call `super::parse_rfc822_date` - source (core/src/technical/mbox.rs)
+- [orchestrator] the first T6 attempt was interrupted leaving a compile error (`mbox.rs:448` `&str` vs `str` compare) and zero tests; the orchestrator fixed the compare and the follow-up round added the tests and `BuiltInMbox` - command output (cargo build error text, then green)
 
 ## Decision log (implementation)
 | # | decision | rationale | decider (agent|user) | status (JUSTIFIED / NEEDS_USER / resolved) |
 |---|---|---|---|---|
+| I3 | Plugin rows are built with `from_stored`, not `from_parts` (T5 brief wording retired): the plugin wire's `amount` is an integer minor-unit count and `from_parts` would re-scale it | reviewer-verified against plugin-protocol.md:27-41 and the `from_parts` INVARIANT at transaction.rs:83-88; pinned by test | agent | JUSTIFIED |
+| I4 | `exec_importers` reports a non-existent plugin path as `ConfigIssue::PluginNotFound` (exists check, not exec bit); the exec-bit check is deferred to 4.8 | the pinned `Importer` probe contract forbids a failing probe, so discovery is the only place a misconfiguration can surface | agent | JUSTIFIED |
 | I2 | DECISION 18 IS REPLACED: bank parsers set `counterparty = ""` (nothing recognized in Phase 4), not `counterparty = description`; imported ids are therefore neither the fixture ids nor decision-18 ids, and the plan's Context id list is retired — tests assert the ids the pipeline produces (amendments A1/A2/A3). `testdata/transactions.csv` stays a hand-annotated STORE example (mail rows + curated counterparties are fixture-side only), so it is left untouched | user asked "why should counterparty equal description?"; `transaction.rs:60` "empty when unknown" and `data-files.md:71` "as recognized by the importer" make empty the honest value, and copying the description into the counterparty slot contradicts `transaction.rs:70-72` ("the description and counterparty slots are NOT interchangeable"); keeping the fixture keeps committed Phase-2 tests (`id.rs:203-228,256-341`) valid | user ("yes, D") | resolved |
 | I1 | T1 test scratch dir = module-private `test-scratch-pdf-text` instead of the plan's `test-scratch/pdf_text/` | repo convention after the 3.6b review (view.rs:181-189 documents removal of the shared parent); reviewer independently verified | agent | JUSTIFIED |
 

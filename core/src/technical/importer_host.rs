@@ -22,10 +22,15 @@
 //!   `phin.toml` per user decision G3, [`exec_importers`] wiring
 //!   `transport_cfg::plugins_from_config` into the same [`import_file`] loop).
 //!
-//! The built-ins here are the two statement readers of plan items 4.2/4.3; they
+//! The built-ins here are the two statement readers of plan items 4.2/4.3 and
+//! the mailbox entry of plan item 4.5 ([`BuiltInMbox]). The statement readers
 //! probe by CONTENT MARKER because no filename convention exists anywhere in
-//! phin (planning decision 13). Each one accepts only its own marker, so a bank
-//! B statement is `Unsupported` as far as bank A is concerned.
+//! phin for statements (planning decision 13); each one accepts only its own
+//! marker, so a bank B statement is `Unsupported` as far as bank A is
+//! concerned. The mailbox entry is the one built-in decision 13 identifies by
+//! EXTENSION (`.mbox`, case-insensitive): mailbox content is arbitrary text no
+//! content marker could single out — and it never yields transactions (R002,
+//! see [`BuiltInMbox]).
 
 use std::cell::RefCell;
 use std::io::BufRead;
@@ -69,9 +74,8 @@ pub const KIND_BANK_STATEMENT: &str = "bank-statement";
 pub const DIALECT_BANK_A: &str = "bank_a";
 /// Dialect name [`ProbeKind::Dialect`] carries for the layout of fixture bank B.
 pub const DIALECT_BANK_B: &str = "bank_b";
-/// Dialect name a mailbox importer (plan item 4.5, registered by
-/// [`builtin_importers`] later) carries; named here so the set of dialect names
-/// lives in one place.
+/// Dialect name the mailbox importer [`BuiltInMbox`] carries (plan item 4.5);
+/// named here so the set of dialect names lives in one place.
 pub const DIALECT_MBOX: &str = "mbox";
 
 /// The plugin timeout default of `doc/architecture/plugin-protocol.md` ("the
@@ -96,6 +100,18 @@ const REAPER_GRACE_SECS: u64 = 2;
 const NAME_BUILT_IN_BANK_A: &str = "built-in-bank-a";
 /// Name of the built-in bank B importer.
 const NAME_BUILT_IN_BANK_B: &str = "built-in-bank-b";
+/// Name of the built-in mailbox importer of plan item 4.5.
+const NAME_BUILT_IN_MBOX: &str = "built-in-mbox";
+
+/// The pinned warning [`BuiltInMbox`] answers every extraction with: mail is
+/// an ANNOTATION of a transaction, never a transaction of its own (R002,
+/// `doc/architecture/architecture.md` "Mail as annotation"). The annotation
+/// side (plan item 4.7) is reached through [`crate::technical::mbox`] by plan
+/// item 4.8 directly, NOT through this trait's transactions channel — which
+/// is exactly why [`Importer::extract_transactions`], which can only hand out
+/// transactions, stays empty for a mailbox. One constant for the warning the
+/// entry returns and the tests assert on, so the two cannot drift.
+const MBOX_NO_TRANSACTIONS: &str = "mail importers never yield transactions (R002)";
 
 /// The pinned refusal of an `annotation` event on the PLUGIN wire (planning
 /// decision 17): Phase 4 has no annotation-plugin story (R002 keeps mail
@@ -231,11 +247,48 @@ impl Importer for BuiltInBankB {
     }
 }
 
+/// The built-in mailbox entry of plan item 4.5: it recognizes a mailbox by its
+/// `.mbox` extension (case-insensitive) — the one built-in probing by
+/// EXTENSION, because mailbox content is arbitrary text no content marker
+/// could single out (planning decision 13).
+///
+/// It NEVER yields transactions: R002 (`doc/architecture/architecture.md`
+/// "Mail as annotation") pins that mail becomes an annotation OF a
+/// transaction and must never create one, so [`Importer::extract_transactions`]
+/// answers the empty transactions channel with [`MBOX_NO_TRANSACTIONS`] — the
+/// rule holds even THROUGH the host path, not only in the annotation code.
+/// The message reader itself is [`crate::technical::mbox`]; plan item 4.7
+/// turns its messages into annotations and plan item 4.8 wires that up, never
+/// this trait's transactions channel.
+pub struct BuiltInMbox;
+
+impl Importer for BuiltInMbox {
+    fn name(&self) -> String {
+        return NAME_BUILT_IN_MBOX.to_string();
+    }
+
+    fn probe(&self, path: &Path) -> ProbeKind {
+        // Extension-only, never reading the file: the probe must be cheap and
+        // cannot fail, and no CONTENT of an mbox file is a reliable marker.
+        return if extension_is(path, "mbox") {
+            ProbeKind::Dialect(DIALECT_MBOX.to_string())
+        } else {
+            ProbeKind::Unsupported
+        };
+    }
+
+    fn extract_transactions(&self, _path: &Path) -> Result<Extracted, ImportError> {
+        // R002, pinned: a mailbox has no transactions to extract, and the one
+        // warning is what plan item 4.8 can log about WHY nothing came.
+        return Ok(Extracted { transactions: Vec::new(), warnings: vec![MBOX_NO_TRANSACTIONS.to_string()] });
+    }
+}
+
 /// The host: the importers a run consults, in the order they are consulted.
 ///
-/// A built-in host uses [`builtin_importers`]; plan item 4.4b appends the
-/// plugin importers it discovers from `phin.toml`, and plan item 4.5 appends
-/// the mailbox reader.
+/// A built-in host uses [`builtin_importers`] (the two statement readers and
+/// the mailbox entry); plan item 4.4b appends the plugin importers it
+/// discovers from `phin.toml`.
 pub struct Host {
     /// The configured importers, consulted in this order (probe pass first,
     /// extract pass second — order preserved in both).
@@ -243,14 +296,14 @@ pub struct Host {
 }
 
 /// The built-in importers, in a fixed, deterministic order: bank A first, then
-/// bank B. The mailbox importer of plan item 4.5 joins this list HERE — in the
-/// task that creates `crate::technical::mbox`, this function gains a third
-/// entry and nothing else changes — and the plugin importers of plan item 4.4b
-/// are appended by the host that reads the configuration.
+/// bank B, then the mailbox entry of plan item 4.5 ([`BuiltInMbox`]). The
+/// plugin importers of plan item 4.4b are appended by the host that reads the
+/// configuration.
 pub fn builtin_importers() -> Vec<Box<dyn Importer>> {
     let mut importers: Vec<Box<dyn Importer>> = Vec::new();
     importers.push(Box::new(BuiltInBankA));
     importers.push(Box::new(BuiltInBankB));
+    importers.push(Box::new(BuiltInMbox));
     return importers;
 }
 
@@ -1348,9 +1401,49 @@ fn probe_false_never_extract() {
 fn builtin_importers_order_is_stable() {
     let importers = builtin_importers();
     let names: Vec<String> = importers.iter().map(|importer| importer.name()).collect();
-    // The mailbox importer of plan item 4.5 joins this list HERE, after the two
-    // built-in statement readers; the order is what makes runs deterministic.
-    assert!(names == [NAME_BUILT_IN_BANK_A.to_string(), NAME_BUILT_IN_BANK_B.to_string()], "names: {names:?}");
+    // The mailbox importer of plan item 4.5 sits in this list right after the
+    // two built-in statement readers; the order is what makes runs
+    // deterministic.
+    assert!(names == [
+        NAME_BUILT_IN_BANK_A.to_string(),
+        NAME_BUILT_IN_BANK_B.to_string(),
+        NAME_BUILT_IN_MBOX.to_string(),
+    ], "names: {names:?}");
+}
+
+#[test]
+fn mbox_file_is_accepted_by_the_mbox_builtin_only_and_yields_no_transactions() {
+    // R002 through the HOST path: a .mbox file is claimed by exactly ONE
+    // built-in, it yields ZERO transactions, and the single warning it reports
+    // is the pinned R002 statement — the host can never append a transaction
+    // from a mailbox.
+    let mbox = scratch_file(
+        "mbox_host",
+        "thread.mbox",
+        b"From anna@example.com Mon Apr 01 12:00:00 2024\nFrom: anna@example.com\nSubject: hi\n\nhello\n",
+    );
+    let host = Host { importers: builtin_importers() };
+    let outcome = import_file(&host, &mbox);
+
+    let accepted: Vec<(String, String)> = outcome.accepted_by.clone();
+    assert!(accepted == [(NAME_BUILT_IN_MBOX.to_string(), DIALECT_MBOX.to_string())], "accepted_by: {accepted:?}");
+    assert!(outcome.failed.is_empty(), "the mailbox entry must not fail here: {:?}", outcome.failed);
+    assert!(outcome.transactions.is_empty(), "R002: a mailbox never yields transactions: {:?}", outcome.transactions);
+    assert!(outcome.warnings == [MBOX_NO_TRANSACTIONS.to_string()], "the R002 warning: {:?}", outcome.warnings);
+
+    // The extension probe is case-insensitive, and it is ONLY the mbox entry:
+    // bank A and bank B decline a .mbox, the mbox entry claims a .MBOX, and it
+    // declines a non-mbox name.
+    let mbox_importer = BuiltInMbox;
+    let bank_a = BuiltInBankA;
+    let bank_b = BuiltInBankB;
+    assert!(bank_a.probe(&mbox) == ProbeKind::Unsupported, "bank A must not claim a mailbox");
+    assert!(bank_b.probe(&mbox) == ProbeKind::Unsupported, "bank B must not claim a mailbox");
+    let upper = scratch_file("mbox_host", "THREAD.MBOX", b"From a@b\n\n\n");
+    assert!(mbox_importer.probe(&upper) == ProbeKind::Dialect(DIALECT_MBOX.to_string()), "the extension probe is case-insensitive");
+    assert!(mbox_importer.probe(&std::path::Path::new("statement.pdf")) == ProbeKind::Unsupported, "the mbox entry claims no PDF");
+
+    remove_scratch("mbox_host");
 }
 
 #[test]

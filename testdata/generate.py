@@ -53,6 +53,16 @@ PAYPAL = [
     ("2024-04-26", -2999, "TAXI AIRPORT; NIGHT", "TAXI BERLIN"),
 ]
 
+# Index (0-based) of the plain message whose body carries a raw "From " line.
+# build_mbox() escapes that line to ">From ", which is what the mbox reader
+# (plan item 4.5) must un-escape WITHOUT treating it as a message separator.
+ESCAPED_FROM_MESSAGE = 5
+
+# Index (0-based) of the PayPal message stored as UNREAD (X-Mozilla-Status
+# 0001); every other PayPal message is stored as read (0000). Thunderbird's
+# per-message flags, read by the mbox reader in plan item 4.5.
+UNREAD_PAYPAL_MESSAGE = 2
+
 # Plain mail thread around the PDF attachment (mail_with_pdf.mbox)
 PLAIN_MAIL = [
     ("Anna", "2024-03-30 09:12:11 +0100", "bank statement feb", "plain"),
@@ -259,8 +269,8 @@ def paypal_body(what, amount_str):
     ]
 
 
-def mail_plain_body(who):
-    return [
+def mail_plain_body(who, escaped_from=False):
+    lines = [
         "Hello " + who + ",",
         "",
         "this is one of the plain messages in the mbox fixture.",
@@ -269,6 +279,11 @@ def mail_plain_body(who):
         "Best regards",
         who,
     ]
+    if escaped_from:
+        # build_mbox() writes this as ">From the internet: hello", so the raw
+        # file contains no second column-0 "From " line to split on.
+        lines += ["", "From the internet: hello"]
+    return lines
 
 
 def rfc_date(datestr):
@@ -288,7 +303,9 @@ def mbox_ctime(datestr):
 
 
 def build_mbox(messages):
-    """messages: dicts with sender_email, from_, date, subject, content_type, body."""
+    """messages: dicts with sender_email, from_, date, subject, content_type,
+    body, and an optional mozilla_status (Thunderbird's X-Mozilla-Status
+    flag, written as a 4-digit hex header)."""
     chunks = []
     for msg in messages:
         lines = [
@@ -298,8 +315,10 @@ def build_mbox(messages):
             f"Subject: {msg['subject']}",
             "Date: " + rfc_date(msg["date"]),
             "Content-Type: " + msg["content_type"],
-            "",
         ]
+        if "mozilla_status" in msg:
+            lines.append("X-Mozilla-Status: " + msg["mozilla_status"])
+        lines.append("")
         body = msg["body"]
         # mbox "From " escaping in the body
         lines += [(">" + ln) if ln.startswith("From ") else ln for ln in body]
@@ -332,13 +351,13 @@ def main():
 
     # --- mbox files -------------------------------------------------------
     msgs = []
-    for (who, date, subject, kind) in PLAIN_MAIL:
+    for index, (who, date, subject, kind) in enumerate(PLAIN_MAIL):
         email = ("anna@example.com" if who == "Anna" else "tobias@example.com")
         if kind == "pdf":
             body = mail_with_pdf_body(bank_b1_pdf)
             ctype = "multipart/mixed; boundary=" + PDF_MIME_BOUNDARY
         else:
-            body = mail_plain_body(who)
+            body = mail_plain_body(who, escaped_from=(index == ESCAPED_FROM_MESSAGE))
             ctype = "text/plain; charset=us-ascii"
         msgs.append({"sender_email": email, "from_": who + " <" + email + ">",
                      "to": ("tobias@example.com" if who == "Anna" else "anna@example.com"),
@@ -347,10 +366,11 @@ def main():
     write("mail_with_pdf.mbox", build_mbox(msgs).encode("utf-8"))
 
     paypal_msgs = []
-    for row in PAYPAL:
+    for index, row in enumerate(PAYPAL):
         date, minor, what, party = row[0], row[1], row[2], row[3]
         paypal_msgs.append({
             "sender_email": "payments@example.com",
+            "mozilla_status": "0001" if index == UNREAD_PAYPAL_MESSAGE else "0000",
             "from_": "PAYPAL *NameOfPayee <payments@example.com>",
             "to": "tobias@example.com",
             "date": date + " 12:00:00 +0100",

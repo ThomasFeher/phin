@@ -4,6 +4,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 02 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0000
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
@@ -32,6 +33,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 05 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0000
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
@@ -60,6 +62,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 09 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0001
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
@@ -88,6 +91,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 12 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0000
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
@@ -116,6 +120,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 15 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0000
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
@@ -144,6 +149,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 18 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0000
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
@@ -172,6 +178,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 21 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0000
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
@@ -200,6 +207,7 @@ To: tobias@example.com
 Subject: Your PayPal payment receipt
 Date: 26 Apr 2024 12:00:00 +0100
 Content-Type: multipart/mixed; boundary=PayPalBoundary0002
+X-Mozilla-Status: 0000
 
 --PayPalBoundary0002
 Content-Type: text/plain; charset=UTF-8
