@@ -124,6 +124,13 @@ pub const IDLE_KEY: &str = "core.idle_timeout";
 /// dotted key above.
 pub const IDLE_TABLE_KEY: &str = "idle_timeout";
 
+/// The `plugins` key of the configuration (plan item 4.4b, user decision G3:
+/// `data-files.md` now NAMES this key — an array of executable path strings;
+/// relative paths resolve against the data directory). It is read by
+/// [`plugins_from_config`] and consumed by
+/// `crate::technical::importer_host::exec_importers`.
+pub const PLUGINS_KEY: &str = "plugins";
+
 /// The length of the nonce of a daemon instance, in lowercase hex characters.
 /// The SHAPE rule itself lives in `proto::handshake::is_wellformed_nonce` (it
 /// is pinned there to the doc's example); this constant is the SAME LENGTH
@@ -235,7 +242,22 @@ pub enum ConfigIssue {
     //  must not read as absent and fall back to the documented default.
     WrongType(String),
     /// `core.port` is outside the range a listener can bind.
-    PortOutOfRange(i64)
+    PortOutOfRange(i64),
+    /// The `plugins` key is not an ARRAY, or one of its ENTRIES is not a
+    //  string (`data-files.md`, plan item 4.4b): the same rule as
+    //  [`ConfigIssue.WrongType`] — a key PRESENT with the wrong shape must
+    //  not read as absent — but it NAMES the `plugins` key's own contract
+    //  ("an array of executable path strings"). Added by plan item 4.4b,
+    //  which is why the enum carries it rather than reusing `WrongType`.
+    PluginsNotStrings(String),
+    /// A `plugins` ENTRY names an executable that is NOT THERE (plan item
+    /// 4.4b, `plugin-protocol.md`: "a plugin must be executable"). The string
+    /// is the CONFIGURED path. Reported at DISCOVERY because the `Importer`
+    /// probe contract lets an unspawnable plugin decline every file it is
+    /// handed — without this complaint a typo in `plugins` would be invisible
+    /// forever. Distinct from [`ConfigIssue::WrongType`]: the SHAPE is fine
+    /// here, the TARGET is missing.
+    PluginNotFound(String)
 }
 
 /// The idle timeout the CONFIGURATION fixes, in SECONDS (user decision 40:
@@ -499,6 +521,84 @@ pub fn endpoint_complaint(issue: &EndpointIssue) -> String {
         EndpointIssue::EmptyHost => { return "core.address has an empty host".to_string(); }
         EndpointIssue::PortNotANumber(text) => { return format!("core.address has a port that is not a number: [{text}]"); }
         EndpointIssue::PortOutOfRange(port) => { return format!("core.address carries a port that cannot be bound: {port}"); }
+    }
+}
+
+/// Read the `plugins` key out of `<data dir>/phin.toml` (plan item 4.4b, user
+/// decision G3): an ARRAY of executable path STRINGS
+/// (`data-files.md`, "which plugins"; `plugin-protocol.md:11` requires that the
+/// configuration, not a scan, discovers the plugin executables).
+///
+/// * SAME typed route as [`endpoint_from_config`]: `basic_toml` over
+///   `serde_json::Value`, `NotFound` defaults (NO `plugins` key and no
+///   configuration FILE both mean the plugin-less run of
+///   `plugin-protocol.md:11`, with NO complaint), an unreadable file is
+///   [`ConfigIssue::NotReadable`], unparseable text is
+///   [`ConfigIssue::NotTOML`].
+/// * A `plugins` key PRESENT with the wrong SHAPE — not an array, or an entry
+///   that is not a string — is the typed [`ConfigIssue::PluginsNotStrings`]
+///   complaint and NOTHING on the half-read list (the [`ConfigIssue::WrongType`]
+///   rule: a present key must never read as absent, and a list with a hole in
+///   it is worse than no list at all).
+/// * The paths are returned EXACTLY as configured (relative ones included);
+///   resolving them against the data directory is the CONSUMER's job,
+///   `crate::technical::importer_host::exec_importers`, because that is the
+///   place that knows it is starting a process.
+pub fn plugins_from_config(data_dir: &std::path::Path) -> (Vec::<String>, Vec::<ConfigIssue>) {
+    let path = data_dir.join(CONFIG_FILE_NAME.to_string());
+    match std::fs::read_to_string(path) {
+        Err(reason) => {
+            // ONLY "there is NO such file" means "no plugins configured".
+            if reason.kind() == std::io::ErrorKind::NotFound {
+                return (Vec::<String>::new(), Vec::<ConfigIssue>::new());
+            }
+            let message = format!("{reason}");
+            return (Vec::<String>::new(), [ConfigIssue::NotReadable(message)].to_vec());
+        }
+        Ok(text) => {
+            match basic_toml::from_str::<Value>(&text) {
+                Err(reason) => {
+                    let mut where_text = String::new();
+                    match reason.line_col() {
+                        None => { }
+                        Some((line, column)) => { where_text = format!(" at line {line} column {column}"); }
+                    }
+                    let message = format!("{reason}");
+                    return (Vec::<String>::new(), [ConfigIssue::NotTOML(format!("{message}{where_text}"))].to_vec());
+                }
+                Ok(held) => {
+                    match held.as_object() {
+                        None => {
+                            return (Vec::<String>::new(), [ConfigIssue::WrongType(CONFIG_FILE_NAME.to_string())].to_vec());
+                        }
+                        Some(root) => {
+                            match root.get(PLUGINS_KEY) {
+                                None => { return (Vec::<String>::new(), Vec::<ConfigIssue>::new()); }
+                                Some(held_list) => {
+                                    match held_list.as_array() {
+                                        None => {
+                                            return (Vec::<String>::new(), [ConfigIssue::PluginsNotStrings(format!("{PLUGINS_KEY} is not an array of executable path strings"))].to_vec());
+                                        }
+                                        Some(entries) => {
+                                            let mut plugins = Vec::<String>::new();
+                                            for index in 0..entries.len() {
+                                                match entries[index].as_str() {
+                                                    None => {
+                                                        return (Vec::<String>::new(), [ConfigIssue::PluginsNotStrings(format!("{PLUGINS_KEY} entry {index} is not a string"))].to_vec());
+                                                    }
+                                                    Some(one) => { plugins.push(one.to_string()); }
+                                                }
+                                            }
+                                            return (plugins, Vec::<ConfigIssue>::new());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1176,6 +1276,75 @@ fn the_lock_reading_is_typed_absent_unreadable_or_malformed_and_never_a_bare_non
         }
         LockReading::Read(_) => { assert!(false); }
         _ => { assert!(false); }
+    }
+    cleanup_scratch(&dir);
+}
+
+#[test]
+fn plugins_from_config_missing_file() {
+    // Plan item 4.4b (user decision G3): NO `phin.toml` at all is NOT a
+    // complaint — the plugin-less run of `plugin-protocol.md:11` is the
+    // default, exactly like the absent endpoint defaults to the documented
+    // address. Empty list, empty issue list.
+    let dir = scratch_dir("plugins_from_config_missing_file".to_string());
+    let held = plugins_from_config(&dir);
+    assert!(held.0.len() == 0, "no file means no plugins: {:?}", held.0);
+    assert!(held.1.len() == 0, "no file means no complaint: {:?}", held.1);
+    cleanup_scratch(&dir);
+}
+
+#[test]
+fn plugins_from_config_reads_array() {
+    // `data-files.md` (plan item 4.4b): `plugins = ["./importers/bank-x"]`, an
+    // ARRAY of executable path STRINGS. The strings come back EXACTLY as
+    // configured (a relative one and an absolute one), because resolving them
+    // against the data directory is the consumer's job (`exec_importers`).
+    let dir = scratch_dir("plugins_from_config_reads_array".to_string());
+    match std::fs::write(
+        &dir.join(CONFIG_FILE_NAME.to_string()),
+        "plugins = [\"./importers/bank-x\", \"/opt/phin/importers/bank-y\"]\n".to_string(),
+    ) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    let held = plugins_from_config(&dir);
+    assert!(held.1.len() == 0, "a well-shaped list is clean: {:?}", held.1);
+    assert!(held.0.len() == 2, "both entries survive: {:?}", held.0);
+    assert!(held.0[0] == "./importers/bank-x".to_string(), "the configured text is carried verbatim: {:?}", held.0);
+    assert!(held.0[1] == "/opt/phin/importers/bank-y".to_string(), "absolute paths are kept: {:?}", held.0);
+    cleanup_scratch(&dir);
+}
+
+#[test]
+fn plugins_from_config_non_string_entry_is_typed_issue() {
+    // The `WrongType` rule for the new key: a `plugins` key PRESENT with the
+    // wrong shape must NOT read as absent, and a list with a hole in it is
+    // worse than no list — so the half-read list is NOT returned, only the
+    // typed `ConfigIssue::PluginsNotStrings` naming the shape rule. BOTH the
+    // non-array value (`plugins = 3`) and the non-string entry
+    // (`plugins = [3]`) take this route.
+    let dir = scratch_dir("plugins_from_config_non_string_entry_is_typed_issue".to_string());
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), "plugins = 3\n".to_string()) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    let held = plugins_from_config(&dir);
+    assert!(held.0.len() == 0, "a malformed list reads as NOTHING, not a default: {:?}", held.0);
+    assert!(held.1.len() == 1, "exactly one typed complaint: {:?}", held.1);
+    match &held.1[0] {
+        ConfigIssue::PluginsNotStrings(text) => { assert!(text.len() > 0, "the complaint carries text: {text}"); }
+        _ => { assert!(false, "the complaint must be PluginsNotStrings, got {:?}", held.1); }
+    }
+    match std::fs::write(&dir.join(CONFIG_FILE_NAME.to_string()), "plugins = [\"./imp\", 3]\n".to_string()) {
+        Err(_) => { assert!(false); }
+        Ok(_) => { }
+    }
+    let held = plugins_from_config(&dir);
+    assert!(held.0.len() == 0, "the good entry is NOT handed out from a malformed list: {:?}", held.0);
+    assert!(held.1.len() == 1, "exactly one typed complaint: {:?}", held.1);
+    match &held.1[0] {
+        ConfigIssue::PluginsNotStrings(text) => { assert!(text.len() > 0, "the complaint carries text: {text}"); }
+        _ => { assert!(false, "the complaint must be PluginsNotStrings, got {:?}", held.1); }
     }
     cleanup_scratch(&dir);
 }

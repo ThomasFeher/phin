@@ -213,7 +213,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       yields the parseable rows; running twice yields identical output. Est. 130 LOC.
 - [x] **4.3 Bank statement parser (bank B)** — same as 4.2 for the second
       fixture layout. Depends: 4.2. Tests: as above with fixture B. Est. 130 LOC.
-- [ ] **4.4 Importer host + plugin contract** — Files: `core/src/technical/
+- [x] **4.4 Importer host + plugin contract** — Files: `core/src/technical/
       importer_host.rs`. `probe` every configured importer (built-in and plugin
       executable), then `extract`; plugin process started, JSON-Lines in/out.
       Depends: 3.1, 4.2, 4.3. Tests: a plugin that answers `probe: false` is

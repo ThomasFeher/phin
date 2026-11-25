@@ -189,6 +189,8 @@ fn config_refusal_text(issue: &transport_cfg::ConfigIssue) -> String {
         transport_cfg::ConfigIssue::NotTOML(text) => { return format!("the configuration file is not TOML: {text}", text = text); }
         transport_cfg::ConfigIssue::WrongType(text) => { return format!("a configuration key holds the wrong type: {text}", text = text); }
         transport_cfg::ConfigIssue::PortOutOfRange(value) => { return format!("the configured port {value} cannot be bound", value = value); }
+        transport_cfg::ConfigIssue::PluginsNotStrings(text) => { return format!("the configured plugin list is malformed: {text}", text = text); }
+        transport_cfg::ConfigIssue::PluginNotFound(text) => { return format!("the configured plugin [{text}] cannot be found in the data directory", text = text); }
     }
 }
 

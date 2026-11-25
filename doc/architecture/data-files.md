@@ -152,6 +152,14 @@ without commands of `core-protocol.md`), data directory (default: current
 directory). Draft, not yet accepted: the file name and location
 (`phin.toml` in the data directory) are fixed here.
 
+Fixed here (plan item 4.4b): "which plugins" is the literal key `plugins`,
+an array of executable path strings (e.g.
+`plugins = ["./importers/bank-x"]`), one entry per plugin importer of
+`plugin-protocol.md`. Relative paths resolve against the data directory,
+absolute paths are kept as given. A `plugins` key that is not an array of
+strings, and an entry whose executable does not exist, are configuration
+problems the core reports; neither reads as "no plugins configured".
+
 ## Fixture note
 
 The `testdata/` fixtures of plan item 0.3 use the columns documented above

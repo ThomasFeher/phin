@@ -9,7 +9,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | T1 | DONE | 1 | 98877af |
 | T2 | DONE | 2 | 64d3150 |
 | T3 | DONE | 1 | 020d522 |
-| T4 | DOING | 0 | |
+| T4 | DONE | 1 | f854349 |
+| T5 | DOING | 0 | |
 | T3 | TODO | 0 | |
 | T4 | TODO | 0 | |
 | T5 | TODO | 0 | |
@@ -30,6 +31,10 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - [reviewer] cycle-2 T2: empty-counterparty rule applied everywhere a transaction is built; date-only candidate row takes the `next_back() -> None` arm and warns without panicking (reproduced with a scratch rustc program); parser never calls `occurrence_id`, so no `#N` can appear - command output (cargo test -p core parse_bank_a -> 9 passed; independent sha256 recomputation of all six ids)
 - [reviewer] T2 nit not blocking: `warnings[0].text.len() > 0` should be `!is_empty()` (repo has no clippy gate) - source (core/src/technical/parse_bank_a.rs:341)
 - [reviewer] T3 approved at cycle 1: interfaces exact, report/warning types imported from parse_bank_a (not duplicated), no shared generic parser, card-token policy (non-matching second token -> typed warning) reviewed and endorsed as correct for this scope - command output (cargo test -p core parse_bank_b -> 10 passed; sha256 recomputation of all 8 ids; build 0 warnings; workspace green)
+- [developer] pinned `ImportError` has only `Unreadable`/`Failed`, so `PdfTextError::ToolMissing` is currently collapsed into `Failed("converter-missing: …")`; 4.8 could then only emit the documented `converter-missing` code by string-matching - source (core/src/technical/importer_host.rs:292-301 `import_error_of`) + developer note
+- [reviewer] T4 contract conforms to the brief line by line; probe-then-extract proven with interior mutability (`extracts.get() == 0`); content-based probing and marker isolation verified; two nits (transaction-order assertion uses identical stub rows; PDF converted twice per file, sanctioned by the brief's probe rule) - command output (cargo test -p core importer_host -> 10 passed; build 0 warnings; workspace green)
+- [developer] (aborted T5 cycle-1 run, no files left in the tree) the plugin wire IS documented: `plugin-protocol.md:43-64` (`probe` req/resp), `:66-90` (`extract` req, `transactions` lines, `end` terminator), `:92-103` (`annotation` variant), `:127-137` (error line with `plugin` and `code`) - correction of an orchestrator misstatement made when re-dispatching; the T5 brief was right
+- [orchestrator] `doc/architecture/plugin-protocol.md` does contain the importer vocabulary (`probe`/`extract`/`transactions`/`end`) and the transaction object; the plugin protocol is a separate vocabulary from the core protocol and has no handshake gate - source (doc/architecture/plugin-protocol.md:1-103)
 
 ## Decision log (implementation)
 | # | decision | rationale | decider (agent|user) | status (JUSTIFIED / NEEDS_USER / resolved) |
@@ -67,4 +72,10 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
   - The fixture `testdata/transactions.csv` stays byte-unchanged in the whole phase (verify with `git diff testdata/`).
 
 - NEEDS_USER (T2, blocking T3/T8/T9 expectations): the plan's Context claims imported ids equal the `testdata/transactions.csv` ids, but that fixture's counterparty column is hand-curated and un-derivable from the printed statement text, so pinned decision 18 (`counterparty == description`) yields different ids. Options: (A) regenerate the fixture with party==description for the CSV rows (forces edits to committed Phase-2 `id.rs` literals), (B) keep the fixture as a hand-annotated store example and assert the ids the import pipeline actually produces (plan Context's id list retired; no fixture churn), (C) hard-code per-bank counterparty recognition to match the CSV (invented recognition - rejected by both agents). Recommendation: B.
+### A4 — amends T5 (and T9): a typed converter-missing signal
+- reason: T4 review finding (plan gap) - the pinned `ImportError` cannot carry `PdfTextError::ToolMissing` typed, but `core-protocol.md:169-170` documents a `converter-missing` error code that 4.8 must be able to emit from a type
+- replacement brief addition (T5, in addition to its own section): in `importer_host.rs`, extend the pinned `pub enum ImportError` with a third variant `ConverterMissing` (derive `Debug, Eq, PartialEq`, `///` doc naming the `converter-missing` protocol code); map `PdfTextError::ToolMissing` to it in `import_error_of` instead of the current `Failed("converter-missing: …")` string; keep the other two variants and their behavior; add/adjust an inline test asserting that a built-in extract on a PDF when the tool is missing yields `ImportError::ConverterMissing` (inject the missing program through `pdf_text::extract_text_with` or a documented test hook - do not hack PATH).
+- replacement brief addition (T9): emit `writer::fail(..., ErrorReason::…, "converter-missing")`-style failure ONLY when a run-level probe shows the tool missing; map `ImportError::ConverterMissing` to the documented `converter-missing` code by matching on the variant, never on the message text.
+- status: agent JUSTIFIED (planning gap found in review); does not block T4 (already committed at f854349)
+
 - RESOLVED 2026-11-23: the user asked why counterparty should equal the description at all, and chose option D -> decision I2 (counterparty empty) with amendments A1/A2/A3; the NEEDS_USER is closed.

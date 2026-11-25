@@ -84,7 +84,10 @@ Plugin → core, one transaction per line, then a terminator:
 Draft, not yet accepted: `kind` on the extract request is fixed here, taken
 from the `kind` the plugin reported in its `probe` response; architecture.md
 only fixes that the core `probe`s and then `extract`s from the importers that
-answered `supported`. The terminator line `{"event":"end"}` is fixed here;
+answered `supported`. Fixed here (plan item 4.4b): that `kind` is never empty —
+a plugin that reports `supported: true` without naming a `kind` gets the
+dialect the core resolved for it (the configured plugin name) back on the
+`extract` request. The terminator line `{"event":"end"}` is fixed here;
 architecture.md only says "`extract` returns candidate transactions as
 JSON-Lines". The core deduplicates by id and appends only unknown ids, so
 `extract` may return duplicates and need not be exact about them.
@@ -100,7 +103,11 @@ instead (mail never creates a transaction, R002):
 
 Draft, not yet accepted: annotation objects on the wire carry no link yet;
 the core performs the automatic link (date, amount, counterparty) and
-assigns the final confidence.
+assigns the final confidence. Fixed here (plan item 4.4b): a Phase-4 core does
+not accept this event from a plugin importer — it reports that plugin as
+failing instead, because Phase 4 has no annotation-plugin use case (the
+built-in mailbox importer is the only annotation source). Annotation plugins
+are Phase 7.
 
 ## `analyse` (analysis plugin)
 
