@@ -224,7 +224,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       attachments. Depends: 0.3. Tests: fixture mbox yields exactly N messages;
       escaped `>From ` in body does not split; attachment decoded to bytes;
       message without attachment; resume from byte offset (uses 2.7). Est. 140 LOC.
-- [ ] **4.6 Mail annotation extraction** — Files: `core/src/technical/
+- [x] **4.6 Mail annotation extraction** — Files: `core/src/technical/
       mail_annotate.rs` → `Vec<Annotation>` (merchant behind a "paypal"
       transaction, items from an attached invoice PDF via 4.1/4.2). Depends:
       4.5, 4.1, 1.7. Tests: PayPal notification yields annotation with items;

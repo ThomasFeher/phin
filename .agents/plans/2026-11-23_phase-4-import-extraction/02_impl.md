@@ -16,6 +16,7 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | T7 | TODO | 0 | |
 | T8 | TODO | 0 | |
 | T9 | TODO | 0 | |
+- [orchestrator] decision 9's fixture claim is wrong: `testdata/mail_paypal.mbox` prints `Betrag: 25,99`, `-19,99`, `120,00` … and `testdata/generate.py` writes the SAME minor-unit value into the `transactions.csv` mail rows (PAYPAL table :45-54, CSV writer :362-390, `fmt_amount` :83-91) - source (grep of the fixture bodies + generate.py)
 
 ## Findings log (implementation)
 - [developer] repo convention forbids the shared `test-scratch/` parent; each module has its own (`test-scratch-view`, `test-scratch-fs-atomic`, `test-scratch-transport-cfg`) - source (core/src/technical/view.rs:181-189)
@@ -49,6 +50,7 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 |---|---|---|---|---|
 | I3 | Plugin rows are built with `from_stored`, not `from_parts` (T5 brief wording retired): the plugin wire's `amount` is an integer minor-unit count and `from_parts` would re-scale it | reviewer-verified against plugin-protocol.md:27-41 and the `from_parts` INVARIANT at transaction.rs:83-88; pinned by test | agent | JUSTIFIED |
 | I4 | `exec_importers` reports a non-existent plugin path as `ConfigIssue::PluginNotFound` (exists check, not exec bit); the exec-bit check is deferred to 4.8 | the pinned `Importer` probe contract forbids a failing probe, so discovery is the only place a misconfiguration can surface | agent | JUSTIFIED |
+| I6 | PLANNING DECISION 9 IS REPLACED: a mail fact's `amount` keeps the sign printed in the `Betrag:` line (`money::parse` result as-is); no forced negation, no absolute value (amendment A5) | decision 9's rationale misdescribed the fixture: the mbox `Betrag:` sign and the `transactions.csv` mail rows agree (`25,99` -> 2599, `120,00` -> 12000, `-19,99` -> -1999), so forcing negatives would make the `CLIENT PAYMENT` receipt an expense and invent semantics no doc defines | user ("B") | resolved |
 | I2 | DECISION 18 IS REPLACED: bank parsers set `counterparty = ""` (nothing recognized in Phase 4), not `counterparty = description`; imported ids are therefore neither the fixture ids nor decision-18 ids, and the plan's Context id list is retired — tests assert the ids the pipeline produces (amendments A1/A2/A3). `testdata/transactions.csv` stays a hand-annotated STORE example (mail rows + curated counterparties are fixture-side only), so it is left untouched | user asked "why should counterparty equal description?"; `transaction.rs:60` "empty when unknown" and `data-files.md:71` "as recognized by the importer" make empty the honest value, and copying the description into the counterparty slot contradicts `transaction.rs:70-72` ("the description and counterparty slots are NOT interchangeable"); keeping the fixture keeps committed Phase-2 tests (`id.rs:203-228,256-341`) valid | user ("yes, D") | resolved |
 | I1 | T1 test scratch dir = module-private `test-scratch-pdf-text` instead of the plan's `test-scratch/pdf_text/` | repo convention after the 3.6b review (view.rs:181-189 documents removal of the shared parent); reviewer independently verified | agent | JUSTIFIED |
 
@@ -89,3 +91,9 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - status: agent JUSTIFIED (planning gap found in review); does not block T4 (already committed at f854349)
 
 - RESOLVED 2026-11-23: the user asked why counterparty should equal the description at all, and chose option D -> decision I2 (counterparty empty) with amendments A1/A2/A3; the NEEDS_USER is closed.
+
+### A5 — supersedes planning decision 9 (mail fact amounts keep the printed sign)
+- reason: user decision (2026-11-23, "B"). Decision 9's stated rationale is factually wrong: it claims `testdata/transactions.csv` shows the mail events as negative, but the fixture's PayPal rows copy the printed sign of the `Betrag:` line verbatim (`Betrag: 25,99` -> row `2599`; `Betrag: 120,00` -> row `12000`; `-19,99` -> `-1999`). Forcing every `Betrag:` negative would turn the `CLIENT PAYMENT` receipt into an expense and contradict the fixture.
+- replacement rule (binding for T7, and inherited by T8/T9): the fact `amount` is `domain::money::parse` of the `Betrag:` value **as printed**, sign included (`+2599`, `-1999`, `+899`, `-4500`, `+12000`, `-799`, `+3450`, `-2999` for the eight fixture messages). No negation, no absolute value.
+- consequence for the pinned T7 test: `paypal_fixture_yields_annotations_with_items_and_confidence` asserts the FIRST fact's amount is `+2599` (not `-2599`); the `counterparty_hint` stays `LEGO STORE DE` and the date `2024-04-02`, confidence `0.9`.
+- note for T8/T9: no PayPal fact can match a bank transaction (mail dates April 2024 vs statement dates Jan-Mar 2024, window ±3 days), so all eight PayPal facts end `Orphan` with confidence `0.0`; the invoice fact (attachment bank_b1, sum `+70054`) likewise has no candidate. `linked` stays 0 in the 4.8 integration test.
