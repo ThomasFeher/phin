@@ -12,11 +12,16 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | T4 | DONE | 1 | f854349 |
 | T5 | DONE | 2 | 47f6eac |
 | T6 | DONE | 2 | 69a0516 |
-| T7 | DOING | 0 | |
+| T7 | DONE | 2 | 3557a47 |
+| T8 | DOING | 0 | |
 | T7 | TODO | 0 | |
 | T8 | TODO | 0 | |
 | T9 | TODO | 0 | |
 - [orchestrator] decision 9's fixture claim is wrong: `testdata/mail_paypal.mbox` prints `Betrag: 25,99`, `-19,99`, `120,00` … and `testdata/generate.py` writes the SAME minor-unit value into the `transactions.csv` mail rows (PAYPAL table :45-54, CSV writer :362-390, `fmt_amount` :83-91) - source (grep of the fixture bodies + generate.py)
+- [reviewer] T7 APPROVE; closed in cycle 2: the `std::fs::write` failure arm no longer leaves the content-hash temp file behind, and path-like `source` normalization is now asserted (id equal to the basename run) - source (core/src/technical/mail_annotate.rs:291-299, test path_like_source_yields_the_same_annotations_as_the_basename)
+- [developer] HAND-OFF to T9: two extractions of byte-identical attachment content share one content-hash temp path (`std::env::temp_dir()`), so 4.8 must keep per-file import SEQUENTIAL or the same PDF in two mboxes can delete each other's file -> silently empty items - source (core/src/technical/mail_annotate.rs, decision 20)
+- [reviewer] HAND-OFF to T9: `annotate_mbox` swallows read/UTF-8 failures into an empty Vec (signature has no error channel), so 4.8 should read the file itself and call `annotate_mbox_text` to keep the `io` error code reportable; `annotation.items` are `|`-separated and bank descriptions are not escaped, so a `|` in a description would split on the annotations.csv round trip; a `text/plain` part encoded base64/quoted-printable yields no PayPal annotation (mbox never decodes text/* parts) - source (mail_annotate.rs:118-124, 200-215; mbox.rs:626)
+- [developer] FLAKY UNDER PARALLEL PRESSURE, unrelated to Phase 4 so far: `technical::fs_atomic::scratch_parent_is_module_private` / `an_empty_target_loses_nothing...` failed once and `technical::transport::a_session_that_used_its_window...` failed once, never reproduced over 9 later full runs - command output (single observed failure mid-session, then 9 clean runs; the T9 integration test must not amplify this)
 
 ## Findings log (implementation)
 - [developer] repo convention forbids the shared `test-scratch/` parent; each module has its own (`test-scratch-view`, `test-scratch-fs-atomic`, `test-scratch-transport-cfg`) - source (core/src/technical/view.rs:181-189)
