@@ -230,7 +230,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       4.5, 4.1, 1.7. Tests: PayPal notification yields annotation with items;
       attached invoice yields items; annotation carries confidence; no
       transaction is ever produced by this code (assert on return type). Est. 130 LOC.
-- [ ] **4.7 Automatic annotation → transaction linking** — Files:
+- [x] **4.7 Automatic annotation → transaction linking** — Files:
       `core/src/technical/link.rs`. Match by date window, amount, counterparty;
       set confidence. Depends: 1.3, 1.7, 2.6. Tests: unique match → high
       confidence; two candidates → lower confidence and both recorded; no

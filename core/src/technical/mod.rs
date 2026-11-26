@@ -9,6 +9,7 @@ pub mod csv;
 pub mod fs_atomic;
 pub mod id;
 pub mod importer_host;
+pub mod link;
 pub mod mail_annotate;
 pub mod mbox;
 pub mod parse_bank_a;

@@ -13,7 +13,7 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | T5 | DONE | 2 | 47f6eac |
 | T6 | DONE | 2 | 69a0516 |
 | T7 | DONE | 2 | 3557a47 |
-| T8 | DOING | 0 | |
+| T8 | REVIEW (reviewer APPROVED cycle 1; not committed yet - run stopped by user) | 1 | |
 | T7 | TODO | 0 | |
 | T8 | TODO | 0 | |
 | T9 | TODO | 0 | |
@@ -49,6 +49,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - [reviewer] T6 approved: byte offsets exact (three independent checks incl. a python offset cross-check), fixtures reproduce from generate.py (two regenerations byte-identical), README statements true, the three-entry builtin list is the pre-authorized T4 comment ('a third entry and nothing else changes') - command output (cargo test -p core mbox -> 11 passed; workspace green)
 - [reviewer] accepted wording deviations inherited by T7: `attachment_of` excludes ALL `text/*` parts (brief said 'non-text/plain'); `>From ` is un-escaped in the BODY region only (header lines are never escaped by mbox writers) - source (core/src/technical/mbox.rs:664, unescape_body)
 - [developer+reviewer] a pinned test name cannot equal a pinned pub fn name: T6's tests live in a `#[cfg(test)] mod tests` submodule (repo's only one) and call `super::parse_rfc822_date` - source (core/src/technical/mbox.rs)
+- [reviewer] T8 APPROVED at cycle 1, no changes required: constants exactly G5 (0.9/0.4/0.0, DATE_WINDOW_DAYS 3, inclusive at +-3, exclusive at +-4); exact i64 amount equality; hint = case-insensitive substring over `annotation.text` OR any item, empty hint vacuous; Pending leaves ref EMPTY with ids sorted ascending; output order = input order; the civil-days math verified against Python proleptic-Gregorian (20 000 random dates, 0 mismatches) - command output (cargo test -p core link -> 13 passed; RUSTFLAGS=-Dwarnings build -> 0 warnings)
+- [reviewer] T8 hand-off: the plan's pinned test name `unique_match_on_2024_02_29_vs_2024_02_27` contradicts the plan's own pinned content (fact 2024-02-26, tx 2024-02-29); the name was kept verbatim and the pinned content implemented, with a 4-day counter-case added - source (.agents/plans/2026-11-23_phase-4-import-extraction/01_plan.md T8 tests; core/src/technical/link.rs:404)
 
 ## Decision log (implementation)
 | # | decision | rationale | decider (agent|user) | status (JUSTIFIED / NEEDS_USER / resolved) |
