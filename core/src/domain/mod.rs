@@ -16,6 +16,7 @@ pub mod classify;
 pub mod date;
 pub mod learn;
 pub mod money;
+pub mod result;
 pub mod rule;
 pub mod transaction;
 
