@@ -5,6 +5,7 @@
 //! performs I/O belongs here; the domain only ever sees the data this side
 //! produces.
 
+pub mod analyse_categories;
 pub mod csv;
 pub mod fs_atomic;
 pub mod id;
