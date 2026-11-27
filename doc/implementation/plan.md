@@ -235,7 +235,7 @@ Task status legend: `[ ]` open, `[x]` done, `[~]` in progress / blocked.
       set confidence. Depends: 1.3, 1.7, 2.6. Tests: unique match → high
       confidence; two candidates → lower confidence and both recorded; no
       candidate → orphan annotation; date window boundary cases. Est. 120 LOC.
-- [ ] **4.8 `import` command wired into interpreter** — Files: interpreter +
+- [x] **4.8 `import` command wired into interpreter** — Files: interpreter +
       importer host. Depends: 3.4, 4.4, 4.5, 2.7. Tests: import of fixture
       directory appends exactly the expected transactions and emits progress;
       second import appends nothing; interrupted import leaves files valid. Est. 100 LOC.

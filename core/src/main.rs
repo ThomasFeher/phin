@@ -8,8 +8,10 @@
 //! the sink of `core/src/protocol/writer.rs` (plan item 3.3) — here, stdout, flushed
 //! after every line, which is what lets the interface watch `progress` and `log`
 //! WHILE a command runs. Which verbs do any work at all is the injected
-//! [`interpret::Work`] seam: in this build none of them is wired
-//! ([`interpret::WiredNowhere`]), so the commands of the table answer the
+//! [`interpret::Work`] seam: from plan item 4.8 that work is
+//! [`core::protocol::import_work::ImportWork`], which wires `import` and
+//! delegates EVERY other verb of the table to
+//! [`interpret::WiredNowhere`] unchanged, so those commands still answer the
 //! `error` event of the documented code naming the plan item that wires them.
 //!
 //! THIS binary does exactly two pieces of I/O, and only because writing the
@@ -33,6 +35,7 @@
 //! exit 1. The exit code is the ONLY place a broken stream is reported, because
 //! the stream it is failing to write is the only channel it could be told in.
 
+use core::protocol::import_work::ImportWork;
 use core::protocol::interpret;
 use core::protocol::writer::EventSink;
 use core::technical::transport;
@@ -265,8 +268,16 @@ fn daemon_status(args: Vec::<String>) -> i32 {
                     return 1;
                 }
                 transport::DaemonStart::Ready(handle) => {
-                    let mut nothing_wired = interpret::wired_nowhere();
-                    let exit = transport::serve_daemon(&handle.listener, &settings.data_dir, settings.idle_seconds, &mut nothing_wired, handle.session);
+                    // Plan item 4.8: `import` IS wired here, and every other verb of
+                    // the table keeps being refused by the untouched
+                    // `interpret::wired_nowhere()` fallback `ImportWork` delegates to
+                    // (decision 26). The data directory is the one this daemon was
+                    // STARTED with (`--data-dir=` or the current directory, the
+                    // precedence `transport::daemon_settings` already applied), which
+                    // is where `transactions.csv`, `annotations.csv` and
+                    // `state/markers.csv` of `data-files.md` are read and written.
+                    let mut import_work = ImportWork::new(settings.data_dir.clone());
+                    let exit = transport::serve_daemon(&handle.listener, &settings.data_dir, settings.idle_seconds, &mut import_work, handle.session);
                     match exit {
                         // The two DOCUMENTED clean exits; a lock left BEHIND
                         // (`Removal::Failed`) breaks `data-files.md:143`
@@ -297,6 +308,30 @@ fn daemon_status(args: Vec::<String>) -> i32 {
     }
 }
 
+/// The data directory of the pipe session of [`main`], as DATA for
+/// [`ImportWork::new`]: the `--data-dir=` flag when the caller handed one (the
+/// very same flag `transport::daemon_settings` parses for the `--serve`
+/// branch, `transport::DATA_DIR_FLAG`), otherwise the CURRENT DIRECTORY of
+/// `data-files.md:152` ("data directory (default: current directory)"). A
+/// current directory that cannot be read is the plain `"."` the same default
+/// means, never a panic and never a guess of a different directory.
+fn pipe_data_dir(args: &Vec::<String>) -> std::path::PathBuf {
+    for held in args.iter() {
+        match held.strip_prefix(transport::DATA_DIR_FLAG) {
+            None => { }
+            Some(given) => {
+                if given.len() > 0 {
+                    return std::path::PathBuf::from(given.to_string());
+                }
+            }
+        }
+    }
+    match std::env::current_dir() {
+        Err(_) => { return std::path::PathBuf::from("."); }
+        Ok(held) => { return held; }
+    }
+}
+
 /// Run the daemon: read the commands of one session from stdin, answer them on
 /// stdout, and stop when the stream says to — UNLESS `--serve` is in the
 /// argv, WHICH is the daemon mode of plan item 3.6 ([`daemon_status`]).
@@ -313,8 +348,12 @@ fn main() {
     }
     let mut input = StdinText { ended: false };
     let mut sink: LatchLines<std::io::Stdout> = LatchLines { out: std::io::stdout(), broken: false };
-    let mut nothing_wired = interpret::wired_nowhere();
-    let how = interpret::run(&mut input, &mut sink, &mut nothing_wired);
+    // Plan item 4.8 injects the import work HERE too, and this time the
+    // `--serve` branch above is not the only production call site: this pipe
+    // session of plan item 3.4 is the other one. Every verb but `import` is
+    // still refused by the untouched `interpret::wired_nowhere()` fallback.
+    let mut import_work = ImportWork::new(pipe_data_dir(&args));
+    let how = interpret::run(&mut input, &mut sink, &mut import_work);
     std::process::exit(exit_code(how, sink.broken));
 }
 

@@ -1,7 +1,7 @@
 # Implementation state
 Plan: ./01_plan.md (read-only, never edit)
 Plan format: detailed-v1
-VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d029e2c0f2ecd30 | plan commit: 3c59a40
+VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d029e2c0f2ecd30 | plan commit: 3c59a40 (superseded by later state commits 296f5de, dcb5ce7, 2461fac)
 
 ## Item state
 | id | status | cycles | commit (sha) |
@@ -13,15 +13,8 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 | T5 | DONE | 2 | 47f6eac |
 | T6 | DONE | 2 | 69a0516 |
 | T7 | DONE | 2 | 3557a47 |
-| T8 | REVIEW (reviewer APPROVED cycle 1; not committed yet - run stopped by user) | 1 | |
-| T7 | TODO | 0 | |
-| T8 | TODO | 0 | |
-| T9 | TODO | 0 | |
-- [orchestrator] decision 9's fixture claim is wrong: `testdata/mail_paypal.mbox` prints `Betrag: 25,99`, `-19,99`, `120,00` … and `testdata/generate.py` writes the SAME minor-unit value into the `transactions.csv` mail rows (PAYPAL table :45-54, CSV writer :362-390, `fmt_amount` :83-91) - source (grep of the fixture bodies + generate.py)
-- [reviewer] T7 APPROVE; closed in cycle 2: the `std::fs::write` failure arm no longer leaves the content-hash temp file behind, and path-like `source` normalization is now asserted (id equal to the basename run) - source (core/src/technical/mail_annotate.rs:291-299, test path_like_source_yields_the_same_annotations_as_the_basename)
-- [developer] HAND-OFF to T9: two extractions of byte-identical attachment content share one content-hash temp path (`std::env::temp_dir()`), so 4.8 must keep per-file import SEQUENTIAL or the same PDF in two mboxes can delete each other's file -> silently empty items - source (core/src/technical/mail_annotate.rs, decision 20)
-- [reviewer] HAND-OFF to T9: `annotate_mbox` swallows read/UTF-8 failures into an empty Vec (signature has no error channel), so 4.8 should read the file itself and call `annotate_mbox_text` to keep the `io` error code reportable; `annotation.items` are `|`-separated and bank descriptions are not escaped, so a `|` in a description would split on the annotations.csv round trip; a `text/plain` part encoded base64/quoted-printable yields no PayPal annotation (mbox never decodes text/* parts) - source (mail_annotate.rs:118-124, 200-215; mbox.rs:626)
-- [developer] FLAKY UNDER PARALLEL PRESSURE, unrelated to Phase 4 so far: `technical::fs_atomic::scratch_parent_is_module_private` / `an_empty_target_loses_nothing...` failed once and `technical::transport::a_session_that_used_its_window...` failed once, never reproduced over 9 later full runs - command output (single observed failure mid-session, then 9 clean runs; the T9 integration test must not amplify this)
+| T8 | DONE | 1 | aa607fc |
+| T9 | DOING (cycle 2 - closing reviewer findings; cycle 1 was APPROVED, not yet committed) | 1 | |
 
 ## Findings log (implementation)
 - [developer] repo convention forbids the shared `test-scratch/` parent; each module has its own (`test-scratch-view`, `test-scratch-fs-atomic`, `test-scratch-transport-cfg`) - source (core/src/technical/view.rs:181-189)
@@ -104,3 +97,10 @@ VCS: git | branch: main (never changed by me) | base: 579e3eca419918254e0384c69d
 - replacement rule (binding for T7, and inherited by T8/T9): the fact `amount` is `domain::money::parse` of the `Betrag:` value **as printed**, sign included (`+2599`, `-1999`, `+899`, `-4500`, `+12000`, `-799`, `+3450`, `-2999` for the eight fixture messages). No negation, no absolute value.
 - consequence for the pinned T7 test: `paypal_fixture_yields_annotations_with_items_and_confidence` asserts the FIRST fact's amount is `+2599` (not `-2599`); the `counterparty_hint` stays `LEGO STORE DE` and the date `2024-04-02`, confidence `0.9`.
 - note for T8/T9: no PayPal fact can match a bank transaction (mail dates April 2024 vs statement dates Jan-Mar 2024, window ±3 days), so all eight PayPal facts end `Orphan` with confidence `0.0`; the invoice fact (attachment bank_b1, sum `+70054`) likewise has no candidate. `linked` stays 0 in the 4.8 integration test.
+
+### A6 — supersedes planning decision 22 (no `Work::do_command` seam widening in 4.8)
+- reason (verified at implementation time against the committed code): the plan assumed a wired phase needs the interpreter to hand it a `&mut writer::CommandStream` to see the cancel flag. It does not. The committed precedent (`core/src/protocol/interpret.rs:1018-1063`, the test work `Importer`) shows a wired phase calling `writer::start` and driving `progress`/`log`/`succeed` itself with the CURRENT one-argument seam, and it can query its own stream with `writer::cancel_requested`. The interpreter cannot set that flag either: `Command::Cancel` is handled by `cancel_last` (`interpret.rs:393,505-530`), which only writes the `cancelled` event of the most recent command and owns no stream, and the transport reads one line, runs the whole command, then reads the next (`transport.rs:1416` "whole-command-by-whole-command"), so a `cancel` line cannot be observed while a command is in flight. Widening the seam would touch `WiredNowhere`, its pinned refusal test and ~10 test implementors for a parameter that changes nothing.
+- ruling: do NOT widen `Work::do_command`. `ImportWork` implements the existing seam (`fn do_command(&mut self, command: Command, sink: &mut dyn EventSink) -> Answered`), creates its own `writer::start("import", total)`, drives `progress`/`log`, checks `writer::cancel_requested(&stream)` between files, and ends with `writer::succeed` (payload keys `added`/`annotations`/`linked`) or `writer::cancel`, returning `Answered::EndedWith`.
+- the per-file cancel branch must still be TESTED: keep the file loop in a private helper that takes `&mut writer::CommandStream`, so an inline test can build a stream, call `writer::request_cancel` on it, and assert the loop stops, writes nothing further, and answers `cancelled` (this is the "files stay valid" guarantee at the unit level).
+- honest scope of the cancel guarantee in this build: mid-command cancellation is unreachable through the daemon (sequential whole-command processing), so the integration test asserts what IS observable — the import ran to completion, files are valid/parseable, and a following `cancel` line answers `cancelled` naming `import` with no further writes. `core-protocol.md`'s Cancellation section needs no change; the doc's contract ("finishes the current item ... nothing is half written because writes happen per file, atomically") is what the test pins.
+- decision 26 stays: `WiredNowhere` and its pinned refusal test are untouched; production injects `ImportWork`, which delegates every non-`import` verb to `WiredNowhere`.

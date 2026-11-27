@@ -96,7 +96,7 @@ Commands are verb first. All known commands:
 | Command | Parameters | Meaning |
 |---------|------------|---------|
 | `version` | `nonce` | Handshake only; proves the listener is our daemon. |
-| `import` | `path` | Import one file (bank statement PDF, mbox) via the importers. |
+| `import` | `path` | Import one file **or a directory of files** (bank statement PDF, mbox) via the importers. |
 | `report` | `format`, optional `year` | Render an analysis document (`markdown`, `html`, `pdf`, `ods`). |
 | `set-category` | `id`, `category`, `reason` | Override the classification of one transaction and learn a rule. |
 | `confirm-annotation` | `annotation`, `id` \| `reject` | Accept or reject an automatic annotation link. |
@@ -109,11 +109,22 @@ and `list-pending` are fixed here for the first time; architecture.md only
 requires that pending links are "listed by the UI so the user can confirm or
 reject them".
 
-Import example:
+Import example (`path` names one file, or a directory whose files are imported
+one by one; re-importing a file or a directory whose content was already
+imported appends nothing a second time):
 
 <!-- test-example id=core-command-import -->
 ```json
 {"v":1,"cmd":"import","path":"/data/statements/2024/bank_a.pdf"}
+```
+
+Import result: `added` counts the transactions the run appended, `annotations`
+the annotations it appended, and `linked` the annotations among those it
+appended that ended linked.
+
+<!-- test-example id=core-event-result-import -->
+```json
+{"v":1,"event":"result","cmd":"import","added":12,"annotations":3,"linked":2}
 ```
 
 ## Events
